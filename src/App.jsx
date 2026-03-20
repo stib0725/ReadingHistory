@@ -14,54 +14,53 @@ const BookApp = () => {
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
 
-// --- 📷 バーコードスキャン機能 (PC/スマホ共通・エラー診断付き) ---
+// --- 📷 バーコードスキャン機能 (待機処理付き) ---
   const startScan = async () => {
+    // 1. まず「スキャン中」の状態にする（これで画面に #reader が現れる準備が整う）
     setIsScanning(true);
     
-    try {
-      // 1. 要素の確認
-      const readerElement = document.getElementById("reader");
-      if (!readerElement) {
-        alert("エラー: ID 'reader' の要素が見つかりません。");
-        setIsScanning(false);
-        return;
-      }
-      readerElement.innerHTML = "";
-
-      // 2. インスタンス作成
-      const html5QrCode = new Html5Qrcode("reader");
-
-      // 3. 起動 (ID指定をせず、条件だけを渡すのが最も安定します)
-      await html5QrCode.start(
-        { facingMode: "environment" }, // 背面カメラを優先。PCなら標準カメラ。
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-        },
-        async (decodedText) => {
-          // 成功時
-          console.log("スキャン成功:", decodedText);
-          try {
-            await fetchBookInfo(decodedText);
-          } finally {
-            await html5QrCode.stop();
-            setIsScanning(false);
-          }
-        },
-        (errorMessage) => {
-          // スキャン中のエラー（読み取り失敗など）は無視
+    // 2. 画面が書き換わる（DOMが生成される）のを一瞬待つ（0.1秒）
+    setTimeout(async () => {
+      try {
+        const readerElement = document.getElementById("reader");
+        
+        // 箱が見つからない場合はエラーを出す（デバッグ用）
+        if (!readerElement) {
+          console.error("reader要素がまだありません");
+          setIsScanning(false);
+          return;
         }
-      ).catch(err => {
-        // ここでエラーを捕まえる
-        alert("カメラ開始エラー: " + err);
-        setIsScanning(false);
-      });
 
-    } catch (globalErr) {
-      console.error("重大なエラー:", globalErr);
-      alert("プログラム実行エラー: " + globalErr.message);
-      setIsScanning(false);
-    }
+        // 3. インスタンス作成
+        const html5QrCode = new Html5Qrcode("reader");
+
+        // 4. 起動
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+          },
+          async (decodedText) => {
+            console.log("スキャン成功:", decodedText);
+            try {
+              await fetchBookInfo(decodedText);
+            } finally {
+              await html5QrCode.stop();
+              setIsScanning(false);
+            }
+          },
+          () => { /* エラー無視 */ }
+        ).catch(err => {
+          alert("カメラ開始エラー: " + err);
+          setIsScanning(false);
+        });
+
+      } catch (globalErr) {
+        console.error("重大なエラー:", globalErr);
+        setIsScanning(false);
+      }
+    }, 100); // 100ミリ秒（0.1秒）待機
   };
 
   // --- 🌐 Google Books API から情報を取得 ---
