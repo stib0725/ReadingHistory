@@ -18,19 +18,18 @@ const BookApp = () => {
   const startScan = () => {
     setIsScanning(true);
 
-    // 1. スキャナーのインスタンスを作成
-    const scanner = new Html5QrcodeScanner(
-      "reader", 
-      { 
-        fps: 10, 
-        qrbox: { width: 250, height: 250 }, 
-        videoConstraints: {
-          facingMode: "environment" // 背面カメラを優先
-        },
-        rememberLastUsedCamera: true
-      },
-      /* verbose= */ false
-    );
+  // 1. スキャナーのインスタンスを作成
+  // App.jsx の設定部分をこれに変更してプッシュ
+  const scanner = new Html5QrcodeScanner(
+    "reader", 
+    { 
+      fps: 10, 
+      qrbox: { width: 250, height: 250 },
+      // ↓ videoConstraints 自体を一旦消すか、空にする
+      videoConstraints: {} 
+    },
+    false
+  );
 
     // 2. 起動（render）
     scanner.render(async (isbn) => {
