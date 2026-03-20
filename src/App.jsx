@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { Html5QrcodeScanner } from "html5-qrcode"; // インストールしたライブラリ
+//import { Html5QrcodeScanner } from "html5-qrcode"; // インストールしたライブラリ
+import { Html5Qrcode } from "html5-qrcode"; // ← Scannerではなくこちらをインポート
 
 const BookApp = () => {
   const [books, setBooks] = useState([]);
@@ -15,20 +16,56 @@ const BookApp = () => {
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', 'その他'];
 
 // --- 📷 バーコードスキャン機能 (Xperia 強制起動版) ---
-  const startScan = () => {
-    setIsScanning(true);
+  const startScan = async () => {
+  setIsScanning(true);
+  
+  // 1. まず「reader」要素を空にする（ゴミが残っていると動かないため）
+  const readerElement = document.getElementById("reader");
+  if (readerElement) readerElement.innerHTML = "";
 
-    // インスタンス作成
-    const scanner = new Html5QrcodeScanner(
-      "reader", 
-      { 
-        fps: 10,
-        // qrbox をあえて設定せず、まずはカメラを映すことを最優先にする
-        // かわりに、アスペクト比（画面の縦横比）を 1.0 に固定してみる
-        aspectRatio: 1.0,
-      },
-      false
-    );
+  // 2. スキャナーのインスタンスを作成
+  const html5QrCode = new Html5Qrcode("reader");
+
+  try {
+    // 3. 利用可能なカメラの一覧を取得する
+    const devices = await Html5Qrcode.getCameras();
+    
+    if (devices && devices.length > 0) {
+      // 4. 背面カメラ（と思われるもの）を探す、なければ最初のカメラ
+      const backCamera = devices.find(device => 
+        device.label.toLowerCase().includes("back") || 
+        device.label.toLowerCase().includes("rear") ||
+        device.label.toLowerCase().includes("camera 0")
+      );
+      const cameraId = backCamera ? backCamera.id : devices[0].id;
+
+      // 5. 直接 ID を指定して起動
+      await html5QrCode.start(
+        cameraId, 
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        (decodedText) => {
+          // 成功時
+          console.log("スキャン成功:", decodedText);
+          fetchBookInfo(decodedText);
+          html5QrCode.stop();
+          setIsScanning(false);
+        },
+        (errorMessage) => {
+          // スキャン中の細かいエラーは無視
+        }
+      );
+    } else {
+      alert("カメラが見つかりませんでした");
+    }
+  } catch (err) {
+    console.error("カメラ起動エラー:", err);
+    alert("カメラの起動に失敗しました。ブラウザの設定を確認してください。");
+    setIsScanning(false);
+  }
+};
 
     const onScanSuccess = async (isbn) => {
       console.log("ISBN取得:", isbn);
