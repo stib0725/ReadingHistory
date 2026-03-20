@@ -41,25 +41,17 @@ const BookApp = () => {
           : devices[0].id;
 
         // 5. 起動
+        // startScan 関数の中の「5. 起動」の部分だけを以下に書き換え
         await html5QrCode.start(
-          cameraId, 
+          { facingMode: "environment" }, // IDではなく「背面カメラ」という条件だけ渡す
           {
             fps: 10,
             qrbox: { width: 250, height: 250 },
-            // アスペクト比を指定するとエラーになりにくい
-            aspectRatio: 1.0
           },
           async (decodedText) => {
-            console.log("スキャン成功:", decodedText);
-            try {
-              await fetchBookInfo(decodedText);
-            } finally {
-              // 成功したら停止して状態を戻す
-              await html5QrCode.stop();
-              setIsScanning(false);
-            }
+            // ...（成功時の処理はそのまま）
           },
-          () => { /* エラーは無視 */ }
+          () => { /* エラー無視 */ }
         );
       } else {
         alert("カメラが見つかりませんでした");
