@@ -18,10 +18,17 @@ const BookApp = () => {
   const startScan = () => {
     setIsScanning(true);
     // 読み取りエリアのIDを指定してスキャナーを作成
-    const scanner = new Html5QrcodeScanner("reader", {
-      fps: 10,
-      qrbox: { width: 250, height: 150 }, // バーコードに合わせたサイズ
-    });
+// 第2引数の設定の中に「videoConstraints」を追加します
+const html5QrcodeScanner = new Html5QrcodeScanner(
+  "reader", 
+  { 
+    fps: 10, 
+    qrbox: 250,
+    videoConstraints: {
+      facingMode: "environment" // これで背面カメラを指定！
+    }
+  }
+);
 
     scanner.render(async (isbn) => {
       // スキャン成功時
