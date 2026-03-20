@@ -14,39 +14,30 @@ const BookApp = () => {
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', 'その他'];
 
-// --- 📷 バーコードスキャン機能 ---
+// --- 📷 バーコードスキャン機能 (Xperia対応版) ---
   const startScan = () => {
     setIsScanning(true);
 
-  // 1. スキャナーのインスタンスを作成
-  // App.jsx の設定部分をこれに変更してプッシュ
-  const scanner = new Html5QrcodeScanner(
-    "reader", 
-    { 
-      fps: 10, 
-      qrbox: { width: 250, height: 250 },
-      // ↓ videoConstraints 自体を一旦消すか、空にする
-      videoConstraints: {} 
-    },
-    false
-  );
+    const scanner = new Html5QrcodeScanner(
+      "reader", 
+      { 
+        fps: 10, 
+        // qrbox をあえて外す（Xperiaの画面比率に合わせるため）
+        // videoConstraints も一旦外してブラウザに選ばせる
+      },
+      false
+    );
 
-    // 2. 起動（render）
     scanner.render(async (isbn) => {
-      // スキャン成功時の処理
       console.log("ISBN取得:", isbn);
-      
       try {
-        await fetchBookInfo(isbn); // 本の情報を取得して保存する関数
-      } catch (err) {
-        console.error("本の取得に失敗しました:", err);
+        await fetchBookInfo(isbn);
       } finally {
-        // 成功しても失敗しても、カメラを閉じて状態を戻す
-        scanner.clear().catch(error => console.error("Failed to clear", error));
+        scanner.clear().catch(e => console.error(e));
         setIsScanning(false);
       }
     }, (error) => {
-      // スキャン中のエラー（読み取り不可など）は無視してOK
+      // エラーは無視
     });
   };
 
