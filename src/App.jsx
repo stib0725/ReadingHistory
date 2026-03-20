@@ -85,12 +85,11 @@ const BookApp = () => {
     }
   };
 
-    // render を呼ぶ際に、カメラの設定を「ゆるい」オブジェクトで渡す
-    // これで Xperia のカメラドライバが反応しやすくなります
-    scanner.render(onScanSuccess, (error) => {
-      // スキャン中のエラーはログに出さない（動作を軽くするため）
-    });
-  };
+  // render を呼ぶ際に、カメラの設定を「ゆるい」オブジェクトで渡す
+  // これで Xperia のカメラドライバが反応しやすくなります
+  scanner.render(onScanSuccess, (error) => {
+    // スキャン中のエラーはログに出さない（動作を軽くするため）
+  });
 
   // --- 🌐 Google Books API から情報を取得 ---
   const fetchBookInfo = async (isbn) => {
