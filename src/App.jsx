@@ -14,52 +14,52 @@ const BookApp = () => {
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
 
-  // --- 📷 バーコードスキャン機能 (Xperia / Android 強化版) ---
+// --- 📷 バーコードスキャン機能 (PC/スマホ共通・エラー診断付き) ---
   const startScan = async () => {
     setIsScanning(true);
     
-    // 1. まず「reader」要素を空にする
-    const readerElement = document.getElementById("reader");
-    if (readerElement) readerElement.innerHTML = "";
-
-    // 2. スキャナーのインスタンスを作成
-    const html5QrCode = new Html5Qrcode("reader");
-
     try {
-      // 3. カメラ一覧を取得
-      const devices = await Html5Qrcode.getCameras();
-      
-      if (devices && devices.length > 0) {
-        // 4. Xperiaの多眼カメラ対策: 'back' か 'rear' を含むカメラ、または最後のカメラを選択
-        // 最後のカメラを選ぶと「メイン広角レンズ」になる確率が高いです
-        const backCameras = devices.filter(device => 
-          device.label.toLowerCase().includes("back") || 
-          device.label.toLowerCase().includes("rear")
-        );
-        const cameraId = backCameras.length > 0 
-          ? backCameras[backCameras.length - 1].id 
-          : devices[0].id;
-
-        // 5. 起動
-        // startScan 関数の中の「5. 起動」の部分だけを以下に書き換え
-        await html5QrCode.start(
-          { facingMode: "environment" }, // IDではなく「背面カメラ」という条件だけ渡す
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-          },
-          async (decodedText) => {
-            // ...（成功時の処理はそのまま）
-          },
-          () => { /* エラー無視 */ }
-        );
-      } else {
-        alert("カメラが見つかりませんでした");
+      // 1. 要素の確認
+      const readerElement = document.getElementById("reader");
+      if (!readerElement) {
+        alert("エラー: ID 'reader' の要素が見つかりません。");
         setIsScanning(false);
+        return;
       }
-    } catch (err) {
-      console.error("カメラ起動エラー:", err);
-      alert("カメラの起動に失敗しました。ブラウザのカメラ権限を確認してください。");
+      readerElement.innerHTML = "";
+
+      // 2. インスタンス作成
+      const html5QrCode = new Html5Qrcode("reader");
+
+      // 3. 起動 (ID指定をせず、条件だけを渡すのが最も安定します)
+      await html5QrCode.start(
+        { facingMode: "environment" }, // 背面カメラを優先。PCなら標準カメラ。
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        async (decodedText) => {
+          // 成功時
+          console.log("スキャン成功:", decodedText);
+          try {
+            await fetchBookInfo(decodedText);
+          } finally {
+            await html5QrCode.stop();
+            setIsScanning(false);
+          }
+        },
+        (errorMessage) => {
+          // スキャン中のエラー（読み取り失敗など）は無視
+        }
+      ).catch(err => {
+        // ここでエラーを捕まえる
+        alert("カメラ開始エラー: " + err);
+        setIsScanning(false);
+      });
+
+    } catch (globalErr) {
+      console.error("重大なエラー:", globalErr);
+      alert("プログラム実行エラー: " + globalErr.message);
       setIsScanning(false);
     }
   };
