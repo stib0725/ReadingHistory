@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-//import { Html5QrcodeScanner } from "html5-qrcode"; // インストールしたライブラリ
-import { Html5Qrcode } from "html5-qrcode"; // ← Scannerではなくこちらをインポート
+import { Html5Qrcode } from "html5-qrcode";
 
 const BookApp = () => {
   const [books, setBooks] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isScanning, setIsScanning] = useState(false); // スキャン中かどうかの状態
+  const [isScanning, setIsScanning] = useState(false);
   const [formData, setFormData] = useState({ 
     title: '', author: '', rating: 5, review: '', 
     read_date: new Date().toISOString().split('T')[0],
@@ -15,7 +14,7 @@ const BookApp = () => {
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
 
-// --- 📷 バーコードスキャン機能 (Xperia 強制起動版) ---
+  // --- 📷 バーコードスキャン機能 (Xperia / Android 強化版) ---
   const startScan = async () => {
     setIsScanning(true);
     
@@ -27,41 +26,40 @@ const BookApp = () => {
     const html5QrCode = new Html5Qrcode("reader");
 
     try {
-      // 3. 利用可能なカメラの一覧を取得する
+      // 3. カメラ一覧を取得
       const devices = await Html5Qrcode.getCameras();
       
       if (devices && devices.length > 0) {
-        // 4. 背面カメラを探す
-        const backCamera = devices.find(device => 
+        // 4. Xperiaの多眼カメラ対策: 'back' か 'rear' を含むカメラ、または最後のカメラを選択
+        // 最後のカメラを選ぶと「メイン広角レンズ」になる確率が高いです
+        const backCameras = devices.filter(device => 
           device.label.toLowerCase().includes("back") || 
-          device.label.toLowerCase().includes("rear") ||
-          device.label.toLowerCase().includes("camera 0")
+          device.label.toLowerCase().includes("rear")
         );
-        const cameraId = backCamera ? backCamera.id : devices[0].id;
+        const cameraId = backCameras.length > 0 
+          ? backCameras[backCameras.length - 1].id 
+          : devices[0].id;
 
-        // 5. 直接 ID を指定して起動
+        // 5. 起動
         await html5QrCode.start(
           cameraId, 
           {
             fps: 10,
             qrbox: { width: 250, height: 250 },
+            // アスペクト比を指定するとエラーになりにくい
+            aspectRatio: 1.0
           },
           async (decodedText) => {
-            // 成功時の処理
             console.log("スキャン成功:", decodedText);
             try {
               await fetchBookInfo(decodedText);
-            } catch (err) {
-              console.error("本情報の取得失敗:", err);
             } finally {
-              // スキャンが成功したら止める
+              // 成功したら停止して状態を戻す
               await html5QrCode.stop();
               setIsScanning(false);
             }
           },
-          (errorMessage) => {
-            // スキャン中のエラーは無視
-          }
+          () => { /* エラーは無視 */ }
         );
       } else {
         alert("カメラが見つかりませんでした");
@@ -69,27 +67,10 @@ const BookApp = () => {
       }
     } catch (err) {
       console.error("カメラ起動エラー:", err);
-      alert("カメラの起動に失敗しました。");
-      setIsScanning(false);
-    }
-  }; // ← ここで startScan は終わりです！
-
-  const onScanSuccess = async (isbn) => {
-  console.log("ISBN取得:", isbn);
-    try {
-      await fetchBookInfo(isbn);
-    } finally {
-      // 成功したら止める
-      await scanner.clear();
+      alert("カメラの起動に失敗しました。ブラウザのカメラ権限を確認してください。");
       setIsScanning(false);
     }
   };
-
-  // render を呼ぶ際に、カメラの設定を「ゆるい」オブジェクトで渡す
-  // これで Xperia のカメラドライバが反応しやすくなります
-  scanner.render(onScanSuccess, (error) => {
-    // スキャン中のエラーはログに出さない（動作を軽くするため）
-  });
 
   // --- 🌐 Google Books API から情報を取得 ---
   const fetchBookInfo = async (isbn) => {
@@ -104,15 +85,14 @@ const BookApp = () => {
           title: info.title || '',
           author: info.authors ? info.authors.join(', ') : '不明',
           category: info.categories ? info.categories[0] : 'その他',
-          review: info.description ? info.description.substring(0, 100) + '...' : '' // 最初の方だけ引用
+          review: info.description ? info.description.substring(0, 100) + '...' : ''
         });
         alert(`「${info.title}」の情報を取得しました！`);
       } else {
-        alert("本が見つかりませんでした。ISBN番号が正しいか確認してください。");
+        alert("本が見つかりませんでした。");
       }
     } catch (err) {
       console.error("APIエラー:", err);
-      alert("情報取得中にエラーが発生しました。");
     }
   };
 
@@ -155,28 +135,26 @@ const BookApp = () => {
     <div style={styles.container}>
       <h1>📚 読書ログ管理</h1>
 
-      {/* バーコード読み取りエリア */}
       {!isScanning ? (
         <button onClick={startScan} style={styles.scanBtn}>📷 バーコードで本を登録</button>
       ) : (
         <div style={{ marginBottom: '20px' }}>
-          <div id="reader" style={{ width: '100%' }}></div>
-          <button onClick={() => window.location.reload()} style={{...styles.scanBtn, background: '#666'}}>キャンセル</button>
+          {/* readerの高さを確保する */}
+          <div id="reader" style={{ width: '100%', minHeight: '300px', backgroundColor: '#eee' }}></div>
+          <button onClick={() => window.location.reload()} style={{...styles.scanBtn, background: '#666', marginTop: '10px', width: '100%'}}>スキャンを中止</button>
         </div>
       )}
 
-      {/* 登録フォーム */}
       <form onSubmit={addBook} style={styles.form}>
         <input style={styles.input} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
         <input style={styles.input} placeholder="著者名" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} />
         <select style={styles.input} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <textarea style={styles.input} placeholder="感想（自動取得されたあらすじ）" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+        <textarea style={styles.input} placeholder="感想・あらすじ" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         <button type="submit" style={styles.saveBtn}>この内容で保存</button>
       </form>
 
-      {/* 検索・一覧 */}
       <input 
         style={{ width: '100%', padding: '10px', boxSizing: 'border-box', marginBottom: '20px', borderRadius: '20px', border: '1px solid #ddd' }}
         placeholder="本を検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
