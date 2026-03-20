@@ -14,30 +14,40 @@ const BookApp = () => {
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', 'その他'];
 
-  // --- 📷 バーコードスキャン機能 ---
+// --- 📷 バーコードスキャン機能 ---
   const startScan = () => {
     setIsScanning(true);
-    // 読み取りエリアのIDを指定してスキャナーを作成
-// 第2引数の設定の中に「videoConstraints」を追加します
-const html5QrcodeScanner = new Html5QrcodeScanner(
-  "reader", 
-  { 
-    fps: 10, 
-    qrbox: 250,
-    videoConstraints: {
-      facingMode: "environment" // これで背面カメラを指定！
-    }
-  }
-);
 
+    // 1. スキャナーのインスタンスを作成
+    const scanner = new Html5QrcodeScanner(
+      "reader", 
+      { 
+        fps: 10, 
+        qrbox: { width: 250, height: 250 }, 
+        videoConstraints: {
+          facingMode: "environment" // 背面カメラを優先
+        },
+        rememberLastUsedCamera: true
+      },
+      /* verbose= */ false
+    );
+
+    // 2. 起動（render）
     scanner.render(async (isbn) => {
-      // スキャン成功時
+      // スキャン成功時の処理
       console.log("ISBN取得:", isbn);
-      await fetchBookInfo(isbn);
-      scanner.clear(); // スキャナーを閉じる
-      setIsScanning(false);
+      
+      try {
+        await fetchBookInfo(isbn); // 本の情報を取得して保存する関数
+      } catch (err) {
+        console.error("本の取得に失敗しました:", err);
+      } finally {
+        // 成功しても失敗しても、カメラを閉じて状態を戻す
+        scanner.clear().catch(error => console.error("Failed to clear", error));
+        setIsScanning(false);
+      }
     }, (error) => {
-      // スキャン中は無視してOK
+      // スキャン中のエラー（読み取り不可など）は無視してOK
     });
   };
 
