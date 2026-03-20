@@ -13,70 +13,77 @@ const BookApp = () => {
     category: '小説' 
   });
 
-  const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', 'その他'];
+  const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
 
 // --- 📷 バーコードスキャン機能 (Xperia 強制起動版) ---
   const startScan = async () => {
-  setIsScanning(true);
-  
-  // 1. まず「reader」要素を空にする（ゴミが残っていると動かないため）
-  const readerElement = document.getElementById("reader");
-  if (readerElement) readerElement.innerHTML = "";
-
-  // 2. スキャナーのインスタンスを作成
-  const html5QrCode = new Html5Qrcode("reader");
-
-  try {
-    // 3. 利用可能なカメラの一覧を取得する
-    const devices = await Html5Qrcode.getCameras();
+    setIsScanning(true);
     
-    if (devices && devices.length > 0) {
-      // 4. 背面カメラ（と思われるもの）を探す、なければ最初のカメラ
-      const backCamera = devices.find(device => 
-        device.label.toLowerCase().includes("back") || 
-        device.label.toLowerCase().includes("rear") ||
-        device.label.toLowerCase().includes("camera 0")
-      );
-      const cameraId = backCamera ? backCamera.id : devices[0].id;
+    // 1. まず「reader」要素を空にする
+    const readerElement = document.getElementById("reader");
+    if (readerElement) readerElement.innerHTML = "";
 
-      // 5. 直接 ID を指定して起動
-      await html5QrCode.start(
-        cameraId, 
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-        },
-        (decodedText) => {
-          // 成功時
-          console.log("スキャン成功:", decodedText);
-          fetchBookInfo(decodedText);
-          html5QrCode.stop();
-          setIsScanning(false);
-        },
-        (errorMessage) => {
-          // スキャン中の細かいエラーは無視
-        }
-      );
-    } else {
-      alert("カメラが見つかりませんでした");
-    }
-  } catch (err) {
-    console.error("カメラ起動エラー:", err);
-    alert("カメラの起動に失敗しました。ブラウザの設定を確認してください。");
-    setIsScanning(false);
-  }
-};
+    // 2. スキャナーのインスタンスを作成
+    const html5QrCode = new Html5Qrcode("reader");
 
-    const onScanSuccess = async (isbn) => {
-      console.log("ISBN取得:", isbn);
-      try {
-        await fetchBookInfo(isbn);
-      } finally {
-        // 成功したら止める
-        await scanner.clear();
+    try {
+      // 3. 利用可能なカメラの一覧を取得する
+      const devices = await Html5Qrcode.getCameras();
+      
+      if (devices && devices.length > 0) {
+        // 4. 背面カメラを探す
+        const backCamera = devices.find(device => 
+          device.label.toLowerCase().includes("back") || 
+          device.label.toLowerCase().includes("rear") ||
+          device.label.toLowerCase().includes("camera 0")
+        );
+        const cameraId = backCamera ? backCamera.id : devices[0].id;
+
+        // 5. 直接 ID を指定して起動
+        await html5QrCode.start(
+          cameraId, 
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+          },
+          async (decodedText) => {
+            // 成功時の処理
+            console.log("スキャン成功:", decodedText);
+            try {
+              await fetchBookInfo(decodedText);
+            } catch (err) {
+              console.error("本情報の取得失敗:", err);
+            } finally {
+              // スキャンが成功したら止める
+              await html5QrCode.stop();
+              setIsScanning(false);
+            }
+          },
+          (errorMessage) => {
+            // スキャン中のエラーは無視
+          }
+        );
+      } else {
+        alert("カメラが見つかりませんでした");
         setIsScanning(false);
       }
-    };
+    } catch (err) {
+      console.error("カメラ起動エラー:", err);
+      alert("カメラの起動に失敗しました。");
+      setIsScanning(false);
+    }
+  }; // ← ここで startScan は終わりです！
+
+  const onScanSuccess = async (isbn) => {
+  console.log("ISBN取得:", isbn);
+    try {
+      await fetchBookInfo(isbn);
+    } finally {
+      // 成功したら止める
+      await scanner.clear();
+      setIsScanning(false);
+    }
+  };
 
     // render を呼ぶ際に、カメラの設定を「ゆるい」オブジェクトで渡す
     // これで Xperia のカメラドライバが反応しやすくなります
