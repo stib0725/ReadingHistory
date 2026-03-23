@@ -7,15 +7,16 @@ const BookApp = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   
-  // --- フォームの状態管理 ---
+  // --- 1. 状態管理 (新しいカラムを追加) ---
   const [formData, setFormData] = useState({ 
     title: '', 
     author: '', 
     publisher: '', 
     published_date: '', 
-    rating: 5, 
-    review: '', 
-    read_date: new Date().toISOString().split('T')[0],
+    summary: '',      // あらすじ
+    review: '',       // 感想
+    read_date: new Date().toISOString().split('T')[0], // 登録日
+    finish_date: '',  // 読了日
     category: '小説',
     status: '積読' 
   });
@@ -23,23 +24,18 @@ const BookApp = () => {
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['積読', '読書中', '読了'];
 
-  // --- 📷 バーコードスキャン機能 ---
+  // --- 2. 📷 バーコードスキャン機能 ---
   const startScan = async () => {
     setIsScanning(true);
     setTimeout(async () => {
       try {
         const readerElement = document.getElementById("reader");
-        if (!readerElement) {
-          console.error("reader要素がまだありません");
-          setIsScanning(false);
-          return;
-        }
+        if (!readerElement) return;
         const html5QrCode = new Html5Qrcode("reader");
         await html5QrCode.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 250, height: 250 } },
           async (decodedText) => {
-            console.log("スキャン成功:", decodedText);
             try {
               await fetchBookInfo(decodedText);
             } finally {
@@ -48,18 +44,12 @@ const BookApp = () => {
             }
           },
           () => {}
-        ).catch(err => {
-          alert("カメラ開始エラー: " + err);
-          setIsScanning(false);
-        });
-      } catch (globalErr) {
-        console.error("重大なエラー:", globalErr);
-        setIsScanning(false);
-      }
+        ).catch(err => { alert(err); setIsScanning(false); });
+      } catch (e) { setIsScanning(false); }
     }, 100);
   };
 
-  // --- 🌐 Google Books API から情報を取得 (統合版) ---
+  // --- 3. 🌐 APIから取得 (summaryにあらすじを入れる) ---
   const fetchBookInfo = async (isbn) => {
     try {
       const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
@@ -73,19 +63,15 @@ const BookApp = () => {
           publisher: info.publisher || '不明', 
           published_date: info.publishedDate || '',
           category: info.categories ? info.categories[0] : 'その他',
-          review: info.description ? info.description.substring(0, 100) + '...' : ''
+          summary: info.description || '', // ここにあらすじ
+          review: '' // 感想は空にしておく
         });
-        alert(`「${info.title}」の情報を取得しました！`);
-      } else {
-        alert("本が見つかりませんでした。");
+        alert(`「${info.title}」を取得しました！`);
       }
-    } catch (err) {
-      console.error("APIエラー:", err);
-      alert("情報取得中にエラーが発生しました。");
-    }
+    } catch (err) { console.error(err); }
   };
 
-  // --- データの読み込み ---
+  // --- 4. データの読み書き ---
   const fetchBooks = async () => {
     const { data, error } = await supabase.from('books').select('*').order('read_date', { ascending: false });
     if (!error) setBooks(data || []);
@@ -93,30 +79,22 @@ const BookApp = () => {
 
   useEffect(() => { fetchBooks(); }, []);
 
-  // --- データの保存 ---
   const addBook = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('books').insert([formData]);
     if (!error) {
       setFormData({ 
-        title: '', 
-        author: '', 
-        publisher: '', 
-        published_date: '', 
-        rating: 5, 
-        review: '', 
+        title: '', author: '', publisher: '', published_date: '', 
+        summary: '', review: '', finish_date: '',
         read_date: new Date().toISOString().split('T')[0], 
-        category: '小説',
-        status: '積読' 
+        category: '小説', status: '積読' 
       });
       fetchBooks();
     } else {
-      console.error("保存エラー:", error);
-      alert("保存に失敗しました。Supabaseのカラム名（publisher, published_dateなど）が正しいか確認してください。");
+      alert("保存エラー: Supabaseのカラム名を確認してください。");
     }
   };
 
-  // --- データの削除 ---
   const deleteBook = async (id) => {
     if (window.confirm('削除しますか？')) {
       await supabase.from('books').delete().eq('id', id);
@@ -126,12 +104,15 @@ const BookApp = () => {
 
   const filteredBooks = books.filter(b => b.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // --- 5. スタイル ---
   const styles = {
-    container: { padding: '20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif' },
-    form: { display: 'flex', flexDirection: 'column', gap: '10px', background: '#f0f4f8', padding: '20px', borderRadius: '12px', marginBottom: '20px' },
-    input: { padding: '10px', borderRadius: '6px', border: '1px solid #ccc' },
-    scanBtn: { padding: '12px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' },
-    saveBtn: { padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }
+    container: { padding: '20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif', color: '#333' },
+    form: { display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8f9fa', padding: '20px', borderRadius: '12px', marginBottom: '30px', border: '1px solid #e0e0e0' },
+    input: { padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' },
+    label: { fontSize: '12px', fontWeight: 'bold', color: '#666', marginTop: '5px' },
+    saveBtn: { padding: '15px', background: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
+    bookCard: { background: 'white', padding: '15px', borderRadius: '10px', border: '1px solid #eee', marginBottom: '15px', position: 'relative' },
+    reviewBox: { background: '#fff9c4', padding: '10px', borderRadius: '5px', marginTop: '10px', fontSize: '14px' }
   };
 
   return (
@@ -139,65 +120,64 @@ const BookApp = () => {
       <h1>📚 読書ログ管理</h1>
 
       {!isScanning ? (
-        <button onClick={startScan} style={styles.scanBtn}>📷 バーコードで本を登録</button>
+        <button onClick={startScan} style={{...styles.saveBtn, background: '#4CAF50', width: '100%', marginBottom: '20px'}}>📷 バーコードで登録</button>
       ) : (
-        <div style={{ marginBottom: '20px' }}>
-          <div id="reader" style={{ width: '100%', minHeight: '300px', backgroundColor: '#eee' }}></div>
-          <button onClick={() => window.location.reload()} style={{...styles.scanBtn, background: '#666', marginTop: '10px', width: '100%'}}>スキャンを中止</button>
-        </div>
+        <div id="reader" style={{ width: '100%', minHeight: '300px', marginBottom: '20px' }}></div>
       )}
 
       <form onSubmit={addBook} style={styles.form}>
         <input style={styles.input} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
         <input style={styles.input} placeholder="著者名" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} />
         
-        {/* --- 以下の2行を追加：出版社と出版日の入力欄 --- */}
-        <input style={styles.input} placeholder="出版社" value={formData.publisher} onChange={e => setFormData({...formData, publisher: e.target.value})} />
-        <input style={styles.input} placeholder="出版日" value={formData.published_date} onChange={e => setFormData({...formData, published_date: e.target.value})} />
+        <div style={{display: 'flex', gap: '10px'}}>
+          <input style={{...styles.input, flex: 1}} placeholder="出版社" value={formData.publisher} onChange={e => setFormData({...formData, publisher: e.target.value})} />
+          <input style={{...styles.input, flex: 1}} placeholder="出版日" value={formData.published_date} onChange={e => setFormData({...formData, published_date: e.target.value})} />
+        </div>
 
-        <label style={{fontSize: '0.8rem', color: '#666'}}>カテゴリ</label>
-        <select style={styles.input} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        
-        <textarea style={styles.input} placeholder="感想・あらすじ" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
-        
-        <label style={{fontSize: '0.8rem', color: '#666'}}>読書ステータス</label>
-        <select 
-          style={styles.input} 
-          value={formData.status} 
-          onChange={e => setFormData({...formData, status: e.target.value})}
-        >
-          {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <label style={styles.label}>あらすじ</label>
+        <textarea style={{...styles.input, minHeight: '80px'}} value={formData.summary} onChange={e => setFormData({...formData, summary: e.target.value})} />
 
-        <button type="submit" style={styles.saveBtn}>この内容で保存</button>
+        <label style={styles.label}>自分の感想</label>
+        <textarea style={{...styles.input, minHeight: '80px'}} placeholder="感じたことをメモ..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+
+        <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+          <div style={{flex: 1}}>
+            <label style={styles.label}>読了日</label>
+            <input type="date" style={{...styles.input, width: '100%'}} value={formData.finish_date} onChange={e => setFormData({...formData, finish_date: e.target.value})} />
+          </div>
+          <div style={{flex: 1}}>
+            <label style={styles.label}>ステータス</label>
+            <select style={{...styles.input, width: '100%'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+              {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" style={styles.saveBtn}>本棚に保存する</button>
       </form>
 
-      <input 
-        style={{ width: '100%', padding: '10px', boxSizing: 'border-box', marginBottom: '20px', borderRadius: '20px', border: '1px solid #ddd' }}
-        placeholder="本を検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
-      />
+      <input style={{...styles.input, width: '100%', borderRadius: '25px', marginBottom: '20px'}} placeholder="本を検索..." onChange={e => setSearchTerm(e.target.value)} />
 
       {filteredBooks.map(book => (
-        <div key={book.id} style={{ borderBottom: '1px solid #eee', padding: '10px 0', position: 'relative' }}>
-          <h4>{book.title}</h4>
-          <p style={{ fontSize: '0.8rem', color: '#666', margin: '4px 0' }}>
-            {book.author} / {book.publisher} ({book.published_date})
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '0.7rem', color: '#999' }}>{book.category}</span>
-            <span style={{
-              padding: '2px 8px',
-              borderRadius: '12px',
-              fontSize: '0.7rem',
-              background: book.status === '読了' ? '#e1f5fe' : book.status === '読書中' ? '#fff9c4' : '#f5f5f5',
-              color: '#333'
-            }}>
-              {book.status || '積読'}
-            </span>
+        <div key={book.id} style={styles.bookCard}>
+          <h3 style={{margin: '0 0 5px 0'}}>{book.title}</h3>
+          <p style={{fontSize: '0.85rem', color: '#666'}}>{book.author} / {book.publisher}</p>
+          
+          {book.finish_date && <p style={{fontSize: '0.8rem', color: '#2ecc71', fontWeight: 'bold'}}>🏁 {book.finish_date} 読了</p>}
+          
+          {book.review && (
+            <div style={styles.reviewBox}>
+              <strong>My Review:</strong>
+              <p style={{margin: '5px 0'}}>{book.review}</p>
+            </div>
+          )}
+
+          <div style={{marginTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+            <span style={{fontSize: '0.75rem', background: '#eee', padding: '3px 8px', borderRadius: '5px'}}>{book.category}</span>
+            <span style={{fontSize: '0.75rem', fontWeight: 'bold', color: book.status === '読了' ? '#007bff' : '#f39c12'}}>{book.status}</span>
           </div>
-          <button onClick={() => deleteBook(book.id)} style={{ position: 'absolute', right: '0', top: '10px', color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}>削除</button>
+          
+          <button onClick={() => deleteBook(book.id)} style={{position: 'absolute', top: '15px', right: '15px', border: 'none', background: 'none', color: '#ccc', cursor: 'pointer'}}>✖</button>
         </div>
       ))}
     </div>
