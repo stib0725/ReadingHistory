@@ -6,94 +6,87 @@ const BookApp = () => {
   const [books, setBooks] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isScanning, setIsScanning] = useState(false);
-  
-  // --- 1. 状態管理 (新しいカラムを追加) ---
+
+  // --- フォームの状態管理 (idを追加) ---
   const [formData, setFormData] = useState({ 
-    title: '', 
-    author: '', 
-    publisher: '', 
-    published_date: '', 
-    summary: '',
-    review: '',
-    read_date: new Date().toISOString().split('T')[0],
-    finish_date: null,
-    category: '小説',
-    status: '積読',
-    image_url: '' // ← 追加
+    id: null, // 編集時に使用
+    title: '', author: '', publisher: '', published_date: '', 
+    summary: '', review: '', read_date: new Date().toISOString().split('T')[0],
+    finish_date: null, category: '小説', status: '積読', image_url: ''
   });
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['積読', '読書中', '読了'];
 
-  // --- 2. 📷 バーコードスキャン機能 ---
-  const startScan = async () => {
-    setIsScanning(true);
-    setTimeout(async () => {
-      try {
-        const readerElement = document.getElementById("reader");
-        if (!readerElement) return;
-        const html5QrCode = new Html5Qrcode("reader");
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          async (decodedText) => {
-            try {
-              await fetchBookInfo(decodedText);
-            } finally {
-              await html5QrCode.stop();
-              setIsScanning(false);
-            }
-          },
-          () => {}
-        ).catch(err => { alert(err); setIsScanning(false); });
-      } catch (e) { setIsScanning(false); }
-    }, 100);
-  };
-
-  // --- 3. 🌐 APIから取得 (summaryにあらすじを入れる) ---
-const fetchBookInfo = async (isbn) => {
-    try {
-      const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const data = await response.json();
-      if (data.items && data.items.length > 0) {
-        const info = data.items[0].volumeInfo;
-        setFormData({
-          ...formData,
-          title: info.title || '',
-          author: info.authors ? info.authors.join(', ') : '不明',
-          publisher: info.publisher || '不明', 
-          published_date: info.publishedDate || '',
-          category: info.categories ? info.categories[0] : 'その他',
-          summary: info.description || '',
-          image_url: info.imageLinks ? info.imageLinks.thumbnail : '', // ← 画像URLを取得
-          review: ''
-        });
-        alert(`「${info.title}」の情報を取得しました！`);
-      }
-    } catch (err) { console.error(err); }
-  };
-
-  // --- 4. データの読み書き ---
+  // --- データの読み込み ---
   const fetchBooks = async () => {
     const { data, error } = await supabase.from('books').select('*').order('read_date', { ascending: false });
     if (!error) setBooks(data || []);
   };
-
   useEffect(() => { fetchBooks(); }, []);
 
-  const addBook = async (e) => {
+  // --- タップした時にフォームに情報をセットする関数 ---
+  const handleEdit = (book) => {
+    setFormData({
+      id: book.id,
+      title: book.title || '',
+      author: book.author || '',
+      publisher: book.publisher || '',
+      published_date: book.published_date || '',
+      summary: book.summary || '',
+      review: book.review || '',
+      read_date: book.read_date || new Date().toISOString().split('T')[0],
+      finish_date: book.finish_date || null,
+      category: book.category || '小説',
+      status: book.status || '積読',
+      image_url: book.image_url || ''
+    });
+    // フォームまでスクロール（スマホで便利）
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // --- 保存または更新の処理 ---
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('books').insert([formData]);
-    if (!error) {
-      setFormData({ 
-        title: '', author: '', publisher: '', published_date: '', 
-        summary: '', review: '', finish_date: '',
-        read_date: new Date().toISOString().split('T')[0], 
-        category: '小説', status: '積読' 
-      });
-      fetchBooks();
+    
+    if (formData.id) {
+      // --- 更新 (Update) ---
+      const { error } = await supabase.from('books').update(formData).eq('id', formData.id);
+      if (!error) alert("更新しました！");
     } else {
-      alert(`保存エラー内容: ${error.message}\nカラム: ${error.details}`);
+      // --- 新規登録 (Insert) ---
+      const { error } = await supabase.from('books').insert([formData]);
+      if (!error) alert("保存しました！");
+    }
+
+    // フォームをリセット
+    setFormData({ id: null, title: '', author: '', publisher: '', published_date: '', summary: '', review: '', finish_date: null, read_date: new Date().toISOString().split('T')[0], category: '小説', status: '積読', image_url: '' });
+    fetchBooks();
+  };
+
+  // --- (startScan, fetchBookInfo, deleteBook は以前と同じ) ---
+  const startScan = async () => {
+    setIsScanning(true);
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new Html5Qrcode("reader");
+        await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 },
+          async (decodedText) => {
+            await fetchBookInfo(decodedText);
+            await html5QrCode.stop();
+            setIsScanning(false);
+          }, () => {}
+        );
+      } catch (e) { setIsScanning(false); }
+    }, 100);
+  };
+
+  const fetchBookInfo = async (isbn) => {
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+    const data = await res.json();
+    if (data.items) {
+      const info = data.items[0].volumeInfo;
+      setFormData({ ...formData, id: null, title: info.title || '', author: info.authors?.join(', ') || '不明', publisher: info.publisher || '不明', published_date: info.publishedDate || '', summary: info.description || '', image_url: info.imageLinks?.thumbnail || '' });
     }
   };
 
@@ -106,76 +99,58 @@ const fetchBookInfo = async (isbn) => {
 
   const filteredBooks = books.filter(b => b.title.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // --- 5. スタイル ---
+  // --- スタイル ---
   const styles = {
-    container: { padding: '20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif', color: '#333' },
-    form: { display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8f9fa', padding: '20px', borderRadius: '12px', marginBottom: '30px', border: '1px solid #e0e0e0' },
-    input: { padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' },
-    label: { fontSize: '12px', fontWeight: 'bold', color: '#666', marginTop: '5px' },
-    saveBtn: { padding: '15px', background: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
-    bookCard: { background: 'white', padding: '15px', borderRadius: '10px', border: '1px solid #eee', marginBottom: '15px', position: 'relative' },
-    reviewBox: { background: '#fff9c4', padding: '10px', borderRadius: '5px', marginTop: '10px', fontSize: '14px' }
+    container: { padding: '15px', maxWidth: '500px', margin: '0 auto', fontFamily: 'sans-serif' },
+    form: { background: '#f9f9f9', padding: '15px', borderRadius: '10px', marginBottom: '20px', border: formData.id ? '2px solid #007bff' : '1px solid #eee' },
+    card: { display: 'flex', gap: '12px', padding: '12px', borderBottom: '1px solid #eee', cursor: 'pointer' },
+    statusBadge: (status) => ({
+      fontSize: '10px', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold',
+      background: status === '読了' ? '#e1f5fe' : status === '読書中' ? '#fff9c4' : '#eee',
+      color: status === '読了' ? '#0288d1' : status === '読書中' ? '#fbc02d' : '#666'
+    })
   };
 
   return (
     <div style={styles.container}>
-      <h1>📚 読書ログ管理</h1>
-
+      <h2>📚 わたしの本棚</h2>
+      
       {!isScanning ? (
-        <button onClick={startScan} style={{...styles.saveBtn, background: '#4CAF50', width: '100%', marginBottom: '20px'}}>📷 バーコードで登録</button>
+        <button onClick={startScan} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '8px' }}>📷 バーコード登録</button>
       ) : (
-        <div id="reader" style={{ width: '100%', minHeight: '300px', marginBottom: '20px' }}></div>
+        <div id="reader" style={{ width: '100%', minHeight: '300px', marginBottom: '15px' }}></div>
       )}
 
-      <form onSubmit={addBook} style={styles.form}>
-        <input style={styles.input} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
-        <input style={styles.input} placeholder="著者名" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} />
+      {/* 入力・編集フォーム */}
+      <form onSubmit={handleSubmit} style={styles.form}>
+        <div style={{fontSize: '11px', color: '#007bff', marginBottom: '5px'}}>{formData.id ? "● 編集モード" : "● 新規登録"}</div>
+        <input style={{ width: '100%', padding: '8px', marginBottom: '8px' }} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+        <textarea style={{ width: '100%', padding: '8px', marginBottom: '8px', fontSize: '12px' }} placeholder="感想を編集..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         
-        <div style={{display: 'flex', gap: '10px'}}>
-          <input style={{...styles.input, flex: 1}} placeholder="出版社" value={formData.publisher} onChange={e => setFormData({...formData, publisher: e.target.value})} />
-          <input style={{...styles.input, flex: 1}} placeholder="出版日" value={formData.published_date} onChange={e => setFormData({...formData, published_date: e.target.value})} />
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <select style={{ flex: 1, padding: '8px' }} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+            {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <button type="submit" style={{ flex: 1, background: formData.id ? '#28a745' : '#007bff', color: 'white', border: 'none', borderRadius: '5px' }}>
+            {formData.id ? "更新する" : "保存する"}
+          </button>
+          {formData.id && <button type="button" onClick={() => setFormData({id:null, title:'', author:'', publisher:'', published_date:'', summary:'', review:'', finish_date:null, read_date:new Date().toISOString().split('T')[0], category:'小説', status:'積読', image_url:''})} style={{flex:0.5, background:'#666', color:'white', border:'none', borderRadius:'5px'}}>取消</button>}
         </div>
-
-        <label style={styles.label}>あらすじ</label>
-        <textarea style={{...styles.input, minHeight: '80px'}} value={formData.summary} onChange={e => setFormData({...formData, summary: e.target.value})} />
-
-        <label style={styles.label}>自分の感想</label>
-        <textarea style={{...styles.input, minHeight: '80px'}} placeholder="感じたことをメモ..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
-
-        <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-          <div style={{flex: 1}}>
-            <label style={styles.label}>読了日</label>
-            <input type="date" style={{...styles.input, width: '100%'}} value={formData.finish_date} onChange={e => setFormData({...formData, finish_date: e.target.value})} />
-          </div>
-          <div style={{flex: 1}}>
-            <label style={styles.label}>ステータス</label>
-            <select style={{...styles.input, width: '100%'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-              {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <button type="submit" style={styles.saveBtn}>本棚に保存する</button>
       </form>
 
-      <input style={{...styles.input, width: '100%', borderRadius: '25px', marginBottom: '20px'}} placeholder="本を検索..." onChange={e => setSearchTerm(e.target.value)} />
+      <input style={{ width: '100%', padding: '10px', borderRadius: '20px', border: '1px solid #ddd', marginBottom: '15px' }} placeholder="本を検索..." onChange={e => setSearchTerm(e.target.value)} />
 
+      {/* 一覧表示 */}
       {filteredBooks.map(book => (
-        <div key={book.id} style={{ ...styles.bookCard, display: 'flex', gap: '15px' }}>
-          {/* 画像を表示する部分 */}
-          {book.image_url ? (
-            <img src={book.image_url} alt={book.title} style={{ width: '60px', height: '90px', objectFit: 'cover', borderRadius: '4px' }} />
-          ) : (
-            <div style={{ width: '60px', height: '90px', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#999', borderRadius: '4px' }}>No Image</div>
-          )}
-
+        <div key={book.id} style={styles.card} onClick={() => handleEdit(book)}>
+          <img src={book.image_url || 'https://via.placeholder.com/60x85?text=No+Img'} style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '4px' }} alt="cover" />
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem' }}>{book.title}</h3>
-            <p style={{ fontSize: '0.8rem', color: '#666' }}>{book.author}</p>
-            {/* ...その後の出版社やステータスの表示... */}
+            <span style={styles.statusBadge(book.status)}>{book.status}</span>
+            <div style={{ fontWeight: 'bold', fontSize: '15px', marginTop: '4px' }}>{book.title}</div>
+            <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
+            {book.review && <div style={{ fontSize: '11px', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>💭 {book.review.substring(0, 20)}...</div>}
           </div>
-          
-          <button onClick={() => deleteBook(book.id)} style={{ position: 'absolute', top: '10px', right: '10px', border: 'none', background: 'none', color: '#ccc', cursor: 'pointer' }}>✖</button>
+          <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ border: 'none', background: 'none', color: '#ccc' }}>✕</button>
         </div>
       ))}
     </div>
