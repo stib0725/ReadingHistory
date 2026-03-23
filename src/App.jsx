@@ -91,7 +91,7 @@ const BookApp = () => {
       });
       fetchBooks();
     } else {
-      alert("保存エラー: Supabaseのカラム名を確認してください。");
+      alert(`保存エラー内容: ${error.message}\nカラム: ${error.details}`);
     }
   };
 
