@@ -151,6 +151,10 @@ const BookApp = () => {
         <input style={styles.input} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
         <input style={styles.input} placeholder="著者名" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} />
         
+        {/* --- 以下の2行を追加：出版社と出版日の入力欄 --- */}
+        <input style={styles.input} placeholder="出版社" value={formData.publisher} onChange={e => setFormData({...formData, publisher: e.target.value})} />
+        <input style={styles.input} placeholder="出版日" value={formData.published_date} onChange={e => setFormData({...formData, published_date: e.target.value})} />
+
         <label style={{fontSize: '0.8rem', color: '#666'}}>カテゴリ</label>
         <select style={styles.input} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
