@@ -106,12 +106,24 @@ const BookApp = () => {
 
   useEffect(() => { fetchBooks(); }, []);
 
-  const addBook = async (e) => {
+const addBook = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('books').insert([formData]);
     if (!error) {
-      setFormData({ title: '', author: '', rating: 5, review: '', read_date: new Date().toISOString().split('T')[0], category: '小説' });
+      // 保存が終わったらフォームをリセット
+      setFormData({ 
+        title: '', 
+        author: '', 
+        rating: 5, 
+        review: '', 
+        read_date: new Date().toISOString().split('T')[0], 
+        category: '小説',
+        status: '積読' // ← ここにも初期値を忘れずに追加！
+      });
       fetchBooks();
+    } else {
+      console.error("保存エラー:", error);
+      alert("保存に失敗しました。");
     }
   };
 
