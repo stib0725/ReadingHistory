@@ -87,6 +87,17 @@ const BookApp = () => {
     }
   };
 
+  // 1. 初期状態に status を追加
+  const [formData, setFormData] = useState({ 
+    title: '', author: '', rating: 5, review: '', 
+    read_date: new Date().toISOString().split('T')[0],
+    category: '小説',
+    status: '積読' // ← 追加
+  });
+
+  // 2. ステータスの選択肢を定義
+  const statuses = ['積読', '読書中', '読了'];
+
   // --- 既存の関数（データの読み込み・保存・削除） ---
   const fetchBooks = async () => {
     const { data, error } = await supabase.from('books').select('*').order('read_date', { ascending: false });
@@ -143,6 +154,13 @@ const BookApp = () => {
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <textarea style={styles.input} placeholder="感想・あらすじ" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+        <select 
+          style={styles.input} 
+          value={formData.status} 
+          onChange={e => setFormData({...formData, status: e.target.value})}
+>
+          {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
         <button type="submit" style={styles.saveBtn}>この内容で保存</button>
       </form>
 
@@ -155,6 +173,16 @@ const BookApp = () => {
         <div key={book.id} style={{ borderBottom: '1px solid #eee', padding: '10px 0', position: 'relative' }}>
           <h4>{book.title}</h4>
           <p style={{ fontSize: '0.8rem', color: '#666' }}>{book.author} / {book.category}</p>
+          <span style={{
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontSize: '0.7rem',
+            background: book.status === '読了' ? '#e1f5fe' : book.status === '読書中' ? '#fff9c4' : '#f5f5f5',
+            color: '#333',
+            marginLeft: '10px'
+          }}>
+            {book.status}
+          </span>
           <button onClick={() => deleteBook(book.id)} style={{ position: 'absolute', right: '0', top: '10px', color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}>削除</button>
         </div>
       ))}
