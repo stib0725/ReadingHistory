@@ -16,7 +16,7 @@ const BookApp = () => {
     summary: '',      // あらすじ
     review: '',       // 感想
     read_date: new Date().toISOString().split('T')[0], // 登録日
-    finish_date: '',  // 読了日
+    finish_date: null, //読了日 '' ではなく null にしてみる
     category: '小説',
     status: '積読' 
   });
