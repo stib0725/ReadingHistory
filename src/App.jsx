@@ -13,12 +13,13 @@ const BookApp = () => {
     author: '', 
     publisher: '', 
     published_date: '', 
-    summary: '',      // あらすじ
-    review: '',       // 感想
-    read_date: new Date().toISOString().split('T')[0], // 登録日
-    finish_date: null, //読了日 '' ではなく null にしてみる
+    summary: '',
+    review: '',
+    read_date: new Date().toISOString().split('T')[0],
+    finish_date: null,
     category: '小説',
-    status: '積読' 
+    status: '積読',
+    image_url: '' // ← 追加
   });
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
@@ -50,7 +51,7 @@ const BookApp = () => {
   };
 
   // --- 3. 🌐 APIから取得 (summaryにあらすじを入れる) ---
-  const fetchBookInfo = async (isbn) => {
+const fetchBookInfo = async (isbn) => {
     try {
       const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
       const data = await response.json();
@@ -63,10 +64,11 @@ const BookApp = () => {
           publisher: info.publisher || '不明', 
           published_date: info.publishedDate || '',
           category: info.categories ? info.categories[0] : 'その他',
-          summary: info.description || '', // ここにあらすじ
-          review: '' // 感想は空にしておく
+          summary: info.description || '',
+          image_url: info.imageLinks ? info.imageLinks.thumbnail : '', // ← 画像URLを取得
+          review: ''
         });
-        alert(`「${info.title}」を取得しました！`);
+        alert(`「${info.title}」の情報を取得しました！`);
       }
     } catch (err) { console.error(err); }
   };
@@ -159,25 +161,21 @@ const BookApp = () => {
       <input style={{...styles.input, width: '100%', borderRadius: '25px', marginBottom: '20px'}} placeholder="本を検索..." onChange={e => setSearchTerm(e.target.value)} />
 
       {filteredBooks.map(book => (
-        <div key={book.id} style={styles.bookCard}>
-          <h3 style={{margin: '0 0 5px 0'}}>{book.title}</h3>
-          <p style={{fontSize: '0.85rem', color: '#666'}}>{book.author} / {book.publisher}</p>
-          
-          {book.finish_date && <p style={{fontSize: '0.8rem', color: '#2ecc71', fontWeight: 'bold'}}>🏁 {book.finish_date} 読了</p>}
-          
-          {book.review && (
-            <div style={styles.reviewBox}>
-              <strong>My Review:</strong>
-              <p style={{margin: '5px 0'}}>{book.review}</p>
-            </div>
+        <div key={book.id} style={{ ...styles.bookCard, display: 'flex', gap: '15px' }}>
+          {/* 画像を表示する部分 */}
+          {book.image_url ? (
+            <img src={book.image_url} alt={book.title} style={{ width: '60px', height: '90px', objectFit: 'cover', borderRadius: '4px' }} />
+          ) : (
+            <div style={{ width: '60px', height: '90px', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#999', borderRadius: '4px' }}>No Image</div>
           )}
 
-          <div style={{marginTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-            <span style={{fontSize: '0.75rem', background: '#eee', padding: '3px 8px', borderRadius: '5px'}}>{book.category}</span>
-            <span style={{fontSize: '0.75rem', fontWeight: 'bold', color: book.status === '読了' ? '#007bff' : '#f39c12'}}>{book.status}</span>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem' }}>{book.title}</h3>
+            <p style={{ fontSize: '0.8rem', color: '#666' }}>{book.author}</p>
+            {/* ...その後の出版社やステータスの表示... */}
           </div>
           
-          <button onClick={() => deleteBook(book.id)} style={{position: 'absolute', top: '15px', right: '15px', border: 'none', background: 'none', color: '#ccc', cursor: 'pointer'}}>✖</button>
+          <button onClick={() => deleteBook(book.id)} style={{ position: 'absolute', top: '10px', right: '10px', border: 'none', background: 'none', color: '#ccc', cursor: 'pointer' }}>✖</button>
         </div>
       ))}
     </div>
