@@ -7,41 +7,18 @@ const BookApp = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   
-// --- 初期状態の更新 ---
-const [formData, setFormData] = useState({ 
-  title: '', 
-  author: '', 
-  publisher: '', // ← 追加
-  published_date: '', // ← 追加
-  rating: 5, 
-  review: '', 
-  read_date: new Date().toISOString().split('T')[0],
-  category: '小説',
-  status: '積読' 
-});
-
-// --- API取得関数の更新 ---
-const fetchBookInfo = async (isbn) => {
-  try {
-    const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-    const data = await response.json();
-    if (data.items && data.items.length > 0) {
-      const info = data.items[0].volumeInfo;
-      setFormData({
-        ...formData,
-        title: info.title || '',
-        author: info.authors ? info.authors.join(', ') : '不明',
-        publisher: info.publisher || '不明', // ← 出版社を取得
-        published_date: info.publishedDate || '', // ← 出版日を取得
-        category: info.categories ? info.categories[0] : 'その他',
-        review: info.description ? info.description.substring(0, 100) + '...' : ''
-      });
-      alert(`「${info.title}」の情報を取得しました！`);
-    }
-  } catch (err) {
-    console.error("APIエラー:", err);
-  }
-};
+  // --- フォームの状態管理 ---
+  const [formData, setFormData] = useState({ 
+    title: '', 
+    author: '', 
+    publisher: '', 
+    published_date: '', 
+    rating: 5, 
+    review: '', 
+    read_date: new Date().toISOString().split('T')[0],
+    category: '小説',
+    status: '積読' 
+  });
 
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['積読', '読書中', '読了'];
@@ -82,7 +59,7 @@ const fetchBookInfo = async (isbn) => {
     }, 100);
   };
 
-  // --- 🌐 Google Books API から情報を取得 ---
+  // --- 🌐 Google Books API から情報を取得 (統合版) ---
   const fetchBookInfo = async (isbn) => {
     try {
       const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
@@ -93,6 +70,8 @@ const fetchBookInfo = async (isbn) => {
           ...formData,
           title: info.title || '',
           author: info.authors ? info.authors.join(', ') : '不明',
+          publisher: info.publisher || '不明', 
+          published_date: info.publishedDate || '',
           category: info.categories ? info.categories[0] : 'その他',
           review: info.description ? info.description.substring(0, 100) + '...' : ''
         });
@@ -102,10 +81,11 @@ const fetchBookInfo = async (isbn) => {
       }
     } catch (err) {
       console.error("APIエラー:", err);
+      alert("情報取得中にエラーが発生しました。");
     }
   };
 
-  // --- 既存の関数（データの読み込み・保存・削除） ---
+  // --- データの読み込み ---
   const fetchBooks = async () => {
     const { data, error } = await supabase.from('books').select('*').order('read_date', { ascending: false });
     if (!error) setBooks(data || []);
@@ -113,6 +93,7 @@ const fetchBookInfo = async (isbn) => {
 
   useEffect(() => { fetchBooks(); }, []);
 
+  // --- データの保存 ---
   const addBook = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('books').insert([formData]);
@@ -120,6 +101,8 @@ const fetchBookInfo = async (isbn) => {
       setFormData({ 
         title: '', 
         author: '', 
+        publisher: '', 
+        published_date: '', 
         rating: 5, 
         review: '', 
         read_date: new Date().toISOString().split('T')[0], 
@@ -129,10 +112,11 @@ const fetchBookInfo = async (isbn) => {
       fetchBooks();
     } else {
       console.error("保存エラー:", error);
-      alert("保存に失敗しました。Supabaseのカラム名が 'status' になっているか確認してください。");
+      alert("保存に失敗しました。Supabaseのカラム名（publisher, published_dateなど）が正しいか確認してください。");
     }
   };
 
+  // --- データの削除 ---
   const deleteBook = async (id) => {
     if (window.confirm('削除しますか？')) {
       await supabase.from('books').delete().eq('id', id);
@@ -190,27 +174,28 @@ const fetchBookInfo = async (isbn) => {
         style={{ width: '100%', padding: '10px', boxSizing: 'border-box', marginBottom: '20px', borderRadius: '20px', border: '1px solid #ddd' }}
         placeholder="本を検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
       />
-    {filteredBooks.map(book => (
-      <div key={book.id} style={{ borderBottom: '1px solid #eee', padding: '10px 0', position: 'relative' }}>
-        <h4>{book.title}</h4>
-        <p style={{ fontSize: '0.8rem', color: '#666', margin: '4px 0' }}>
-          {book.author} / {book.publisher} ({book.published_date})
-        </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '0.7rem', color: '#999' }}>{book.category}</span>
-          <span style={{
-            padding: '2px 8px',
-            borderRadius: '12px',
-            fontSize: '0.7rem',
-            background: book.status === '読了' ? '#e1f5fe' : book.status === '読書中' ? '#fff9c4' : '#f5f5f5',
-            color: '#333'
-          }}>
-            {book.status || '積読'}
-          </span>
+
+      {filteredBooks.map(book => (
+        <div key={book.id} style={{ borderBottom: '1px solid #eee', padding: '10px 0', position: 'relative' }}>
+          <h4>{book.title}</h4>
+          <p style={{ fontSize: '0.8rem', color: '#666', margin: '4px 0' }}>
+            {book.author} / {book.publisher} ({book.published_date})
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '0.7rem', color: '#999' }}>{book.category}</span>
+            <span style={{
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontSize: '0.7rem',
+              background: book.status === '読了' ? '#e1f5fe' : book.status === '読書中' ? '#fff9c4' : '#f5f5f5',
+              color: '#333'
+            }}>
+              {book.status || '積読'}
+            </span>
+          </div>
+          <button onClick={() => deleteBook(book.id)} style={{ position: 'absolute', right: '0', top: '10px', color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}>削除</button>
         </div>
-        {/* 削除ボタンなどはそのまま */}
-      </div>
-    ))}
+      ))}
     </div>
   );
 };
