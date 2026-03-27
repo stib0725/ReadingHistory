@@ -7,55 +7,38 @@ const BookApp = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isScanning, setIsScanning] = useState(false);
 
-  // --- フォームの状態管理 ---
   const [formData, setFormData] = useState({ 
-    id: null, 
-    title: '', author: '', publisher: '', published_date: '', 
+    id: null, title: '', author: '', publisher: '', published_date: '', 
     summary: '', review: '', read_date: new Date().toISOString().split('T')[0],
     finish_date: null, category: '小説', status: '積読', image_url: ''
   });
 
-  // 1. statusesに「読りたい」を追加
   const categories = ['小説', '技術書', 'ビジネス書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['読みたい', '積読', '読書中', '読了'];
 
-  // --- データの読み込み ---
   const fetchBooks = async () => {
     const { data, error } = await supabase.from('books').select('*').order('read_date', { ascending: false });
     if (!error) setBooks(data || []);
   };
   useEffect(() => { fetchBooks(); }, []);
 
-  // --- フォームのリセット ---
   const resetForm = () => {
     setFormData({ id: null, title: '', author: '', publisher: '', published_date: '', summary: '', review: '', finish_date: null, read_date: new Date().toISOString().split('T')[0], category: '小説', status: '積読', image_url: '' });
   };
 
-  // --- 一覧のリストをタップした時にフォームに情報をセット ---
   const handleEdit = (book) => {
     setFormData({
-      id: book.id,
-      title: book.title || '',
-      author: book.author || '',
-      publisher: book.publisher || '',
-      published_date: book.published_date || '',
-      summary: book.summary || '',
-      review: book.review || '',
-      read_date: book.read_date || new Date().toISOString().split('T')[0],
-      finish_date: book.finish_date || null,
-      category: book.category || '小説',
-      status: book.status || '積読',
-      image_url: book.image_url || ''
+      id: book.id, title: book.title || '', author: book.author || '', publisher: book.publisher || '',
+      published_date: book.published_date || '', summary: book.summary || '', review: book.review || '',
+      read_date: book.read_date || new Date().toISOString().split('T')[0], finish_date: book.finish_date || null,
+      category: book.category || '小説', status: book.status || '積読', image_url: book.image_url || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // --- 保存または更新の処理 ---
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    
     const { id, ...submitData } = formData; 
-
     if (id) {
       const { error } = await supabase.from('books').update(submitData).eq('id', id);
       if (!error) alert("更新しました！");
@@ -63,66 +46,78 @@ const BookApp = () => {
       const { error } = await supabase.from('books').insert([submitData]);
       if (!error) alert("保存しました！");
     }
-
     resetForm();
     fetchBooks();
   };
 
-  // --- バーコードスキャン機能 ---
+  // --- 📷 スキャン機能（修正版） ---
   const startScan = async () => {
     setIsScanning(true);
     setTimeout(async () => {
       try {
         const html5QrCode = new Html5Qrcode("reader");
-        await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 },
+        await html5QrCode.start(
+          { facingMode: "environment" }, 
+          { fps: 10, qrbox: 250 },
           async (decodedText) => {
-            await fetchBookInfo(decodedText);
-            await html5QrCode.stop();
+            // 1. まずスキャンを止める（多重反応を防止）
+            await html5QrCode.stop().catch(() => {});
             setIsScanning(false);
-          }, () => {}
+            // 2. 本の情報を取得しに行く
+            await fetchBookInfo(decodedText);
+          }, 
+          () => {}
         );
-      } catch (e) { setIsScanning(false); }
+      } catch (e) { 
+        setIsScanning(false);
+        console.error("Camera error:", e);
+      }
     }, 100);
   };
 
-  // --- 2. APIから本情報を取得 ＋ 重複チェック ---
+  // --- 🌐 本情報取得 ＋ 重複チェック（修正版） ---
   const fetchBookInfo = async (isbn) => {
     try {
       const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
       const data = await res.json();
-      if (data.items) {
+      if (data.items && data.items.length > 0) {
         const info = data.items[0].volumeInfo;
         const newTitle = info.title || '';
 
-        // 【追加】すでに本棚にあるかチェック
+        // すでに本棚にあるかチェック
         const isDuplicate = books.some(book => book.title === newTitle);
 
         if (isDuplicate) {
-          const confirmInsert = window.confirm(`「${newTitle}」はすでに本棚にあります。もう一度登録しますか？`);
+          const confirmInsert = window.confirm(`「${newTitle}」はすでに登録されています。もう一度登録しますか？`);
           if (!confirmInsert) {
-            // キャンセルされた場合はフォームにセットだけして、保存はしない
-            setFormData({ 
-              ...formData, id: null, title: newTitle, 
-              author: info.authors?.join(', ') || '不明', 
-              image_url: info.imageLinks?.thumbnail || '' 
-            });
+            resetForm();
             return; 
           }
         }
 
-        // 重複していない、または「はい」を押した場合はフォームにセット
+        // フォームにセット
         setFormData({ 
-          ...formData, id: null, title: newTitle, 
+          ...formData, 
+          id: null, 
+          title: newTitle, 
           author: info.authors?.join(', ') || '不明', 
           publisher: info.publisher || '不明', 
           published_date: info.publishedDate || '', 
           summary: info.description || '', 
           image_url: info.imageLinks?.thumbnail || '' 
         });
-        
-        alert(`「${newTitle}」の情報を取得しました。保存ボタンを押して完了してください。`);
+
+        // 重複していない場合のみ「取得しました」を出す（何度も出ないように）
+        if (!isDuplicate) {
+          alert(`「${newTitle}」を取得しました。`);
+        }
+      } else {
+        alert("本が見つかりませんでした。");
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e);
+      alert("情報取得中にエラーが発生しました。");
+    }
   };
 
   const deleteBook = async (id) => {
@@ -186,7 +181,7 @@ const BookApp = () => {
 
         {formData.id && (
           <button type="button" onClick={resetForm} style={{ width: '100%', padding: '8px', background: '#666', color: 'white', border: 'none', borderRadius: '5px' }}>
-            編集をキャンセル
+            キャンセル
           </button>
         )}
       </form>
