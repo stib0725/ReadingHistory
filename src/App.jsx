@@ -5,8 +5,8 @@ import { Html5Qrcode } from "html5-qrcode";
 const BookApp = () => {
   const [books, setBooks] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('すべて'); // ステータス絞り込み用
-  const [sortBy, setSortBy] = useState('read_date_desc'); // ソート用
+  const [statusFilter, setStatusFilter] = useState('すべて');
+  const [sortBy, setSortBy] = useState('read_date_desc');
   const [isScanning, setIsScanning] = useState(false);
 
   const [formData, setFormData] = useState({ 
@@ -39,11 +39,15 @@ const BookApp = () => {
     fetchBooks();
   };
 
-  // --- 🔍 フィルタリング & ソートのロジック ---
+  const deleteBook = async (id) => {
+    if (window.confirm('削除しますか？')) {
+      await supabase.from('books').delete().eq('id', id);
+      fetchBooks();
+    }
+  };
+
   const getFilteredAndSortedBooks = () => {
     let result = [...books];
-
-    // 1. タイトルと著者で検索
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(b => 
@@ -51,20 +55,15 @@ const BookApp = () => {
         (b.author?.toLowerCase().includes(term))
       );
     }
-
-    // 2. ステータスで絞り込み
     if (statusFilter !== 'すべて') {
       result = result.filter(b => b.status === statusFilter);
     }
-
-    // 3. ソート
     result.sort((a, b) => {
       if (sortBy === 'read_date_desc') return new Date(b.read_date) - new Date(a.read_date);
       if (sortBy === 'read_date_asc') return new Date(a.read_date) - new Date(b.read_date);
       if (sortBy === 'title_asc') return a.title.localeCompare(b.title, 'ja');
       return 0;
     });
-
     return result;
   };
 
@@ -100,13 +99,16 @@ const BookApp = () => {
   const styles = {
     container: { padding: '15px', maxWidth: '500px', margin: '0 auto', fontFamily: 'sans-serif', backgroundColor: '#fdfdfd' },
     form: { background: '#f1f3f5', padding: '15px', borderRadius: '12px', marginBottom: '20px' },
-    filterSection: { marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '10px' },
-    statusTabContainer: { display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '5px' },
     statusTab: (active) => ({
       padding: '6px 12px', borderRadius: '15px', border: 'none', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
       background: active ? '#007bff' : '#eee', color: active ? 'white' : '#666', fontWeight: active ? 'bold' : 'normal'
     }),
-    card: { display: 'flex', gap: '12px', padding: '12px', borderBottom: '1px solid #eee', cursor: 'pointer', background: 'white' }
+    card: { display: 'flex', gap: '12px', padding: '12px', borderBottom: '1px solid #eee', cursor: 'pointer', background: 'white', position: 'relative' },
+    badge: (status) => ({
+      fontSize: '10px', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold',
+      background: status === '読了' ? '#e1f5fe' : status === '読書中' ? '#fff9c4' : status === '読みたい' ? '#f3e5f5' : '#eee',
+      color: status === '読了' ? '#0288d1' : status === '読書中' ? '#fbc02d' : status === '読みたい' ? '#9c27b0' : '#666'
+    })
   };
 
   return (
@@ -119,63 +121,68 @@ const BookApp = () => {
         <div id="reader" style={{ width: '100%', minHeight: '300px', marginBottom: '15px' }}></div>
       )}
 
-      {/* 入力フォーム */}
       <form onSubmit={handleSubmit} style={styles.form}>
-        <input style={{ width: '100%', padding: '10px', marginBottom: '8px', boxSizing: 'border-box', border: '1px solid #ddd', borderRadius: '4px' }} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
-        <textarea style={{ width: '100%', padding: '10px', marginBottom: '8px', fontSize: '13px', boxSizing: 'border-box', border: '1px solid #ddd', borderRadius: '4px' }} placeholder="感想..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+        <div style={{fontSize: '11px', color: '#007bff', marginBottom: '5px', fontWeight: 'bold'}}>{formData.id ? "● 編集モード" : "● 新規登録"}</div>
+        <input style={{ width: '100%', padding: '10px', marginBottom: '8px', boxSizing: 'border-box' }} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+        <textarea style={{ width: '100%', padding: '10px', marginBottom: '8px', fontSize: '13px', boxSizing: 'border-box' }} placeholder="感想..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         <div style={{display: 'flex', gap: '8px'}}>
-          <select style={{flex: 1, padding: '10px'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+          <select 
+            style={{flex: 1, padding: '10px'}} 
+            value={formData.status} 
+            onChange={e => {
+              const newStatus = e.target.value;
+              let newFinishDate = formData.finish_date;
+              if (newStatus === '読了' && !newFinishDate) {
+                newFinishDate = new Date().toISOString().split('T')[0];
+              }
+              setFormData({...formData, status: newStatus, finish_date: newFinishDate});
+            }}
+          >
             {statuses.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <button type="submit" style={{ flex: 1, background: '#007bff', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>{formData.id ? "更新" : "保存"}</button>
         </div>
+        {formData.id && <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'8px', padding:'5px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録に戻る</button>}
       </form>
 
-      <hr />
-
-      {/* 🔍 検索・フィルタ・ソートセクション */}
-      <div style={styles.filterSection}>
+      <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <input 
           style={{ width: '100%', padding: '12px', borderRadius: '25px', border: '1px solid #ddd', boxSizing: 'border-box' }} 
           placeholder="タイトル・著者名で検索..." 
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)} 
         />
-        
-        {/* ステータス切り替えタブ */}
-        <div style={styles.statusTabContainer}>
+        <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '5px' }}>
           {['すべて', ...statuses].map(s => (
             <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s)}>{s}</button>
           ))}
         </div>
-
-        {/* ソート選択 */}
-        <select 
-          style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #eee', fontSize: '12px', color: '#666' }}
-          value={sortBy}
-          onChange={e => setSortBy(e.target.value)}
-        >
+        <select style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #eee', fontSize: '12px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
           <option value="read_date_desc">登録が新しい順</option>
           <option value="read_date_asc">登録が古い順</option>
-          <option value="title_asc">タイトル順(あいうえお)</option>
+          <option value="title_asc">タイトル順</option>
         </select>
       </div>
 
-      <div style={{fontSize: '12px', color: '#888', marginBottom: '10px'}}>{filteredBooks.length} 冊見つかりました</div>
-
-      {/* 一覧表示 */}
       <div style={{ background: 'white', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book}); window.scrollTo({top:0, behavior:'smooth'}); }}>
             <img src={book.image_url || 'https://via.placeholder.com/60x85'} style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '4px' }} alt="cover" />
             <div style={{ flex: 1 }}>
-              <div style={{display: 'flex', justifyContent: 'space-between'}}>
-                <span style={{fontSize: '10px', background: '#eee', padding: '2px 6px', borderRadius: '10px'}}>{book.status}</span>
-              </div>
+              <span style={styles.badge(book.status)}>{book.status}</span>
               <div style={{ fontWeight: 'bold', fontSize: '14px', marginTop: '4px' }}>{book.title}</div>
               <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
+              
+              {/* --- 🏁 読了日の表示を復活 --- */}
+              {book.status === '読了' && book.finish_date && (
+                <div style={{ fontSize: '11px', color: '#2ecc71', marginTop: '3px', fontWeight: 'bold' }}>
+                  🏁 {book.finish_date} 読了
+                </div>
+              )}
+              
               {book.review && <div style={{ fontSize: '11px', color: '#999', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>💭 {book.review}</div>}
             </div>
+            <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', top: '10px', border: 'none', background: 'none', color: '#ccc' }}>✕</button>
           </div>
         ))}
       </div>
