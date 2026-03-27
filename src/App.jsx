@@ -105,7 +105,21 @@ const BookApp = () => {
 
   const styles = {
     container: { padding: '15px', maxWidth: '500px', margin: '0 auto', fontFamily: 'sans-serif', backgroundColor: '#fdfdfd', minHeight: '100vh' },
-    form: { background: '#f1f3f5', padding: '15px', borderRadius: '12px', marginBottom: '20px' },
+    form: { background: '#f1f3f5', padding: '15px', borderRadius: '12px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' },
+    inputField: { width: '100%', padding: '10px', marginBottom: '8px', boxSizing: 'border-box', borderRadius: '8px', border: '1px solid #ccc', fontSize: '14px' },
+    // 感想欄のスタイルを強化
+    textareaField: { 
+      width: '100%', 
+      padding: '12px', 
+      marginBottom: '10px', 
+      fontSize: '14px', 
+      boxSizing: 'border-box', 
+      borderRadius: '8px', 
+      border: '1px solid #ccc', 
+      minHeight: '120px', // ここを大きくしました！
+      lineHeight: '1.5',
+      resize: 'vertical' // ユーザーが自分で広げることも可能に
+    },
     tabScroll: { display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '8px', scrollbarWidth: 'none' },
     statusTab: (active, color) => ({
       padding: '6px 12px', borderRadius: '15px', border: 'none', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap',
@@ -133,14 +147,24 @@ const BookApp = () => {
 
       {/* 入力フォーム */}
       <form onSubmit={handleSubmit} style={styles.form}>
-        <input style={{ width: '100%', padding: '10px', marginBottom: '8px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+        <input style={styles.inputField} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <select style={{flex: 1, padding: '10px'}} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{categories.map(c => <option key={c} value={c}>{c}</option>)}</select>
-          <select style={{flex: 1, padding: '10px'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select>
+          <select style={{flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ccc'}} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{categories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+          <select style={{flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ccc'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select>
         </div>
-        <textarea style={{ width: '100%', padding: '10px', marginBottom: '8px', fontSize: '13px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="感想..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
-        <button type="submit" style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>{formData.id ? "更新する" : "保存する"}</button>
-        {formData.id && <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'8px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録に戻る</button>}
+        
+        {/* 感想欄を大きくしました */}
+        <textarea 
+          style={styles.textareaField} 
+          placeholder="この本の感想や、心に刺さったフレーズをメモしましょう！" 
+          value={formData.review} 
+          onChange={e => setFormData({...formData, review: e.target.value})} 
+        />
+        
+        <button type="submit" style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px' }}>
+          {formData.id ? "更新する" : "保存する"}
+        </button>
+        {formData.id && <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'10px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録に戻る</button>}
       </form>
 
       {/* 🔍 検索・絞り込み・ソート */}
@@ -187,7 +211,7 @@ const BookApp = () => {
         ))}
       </div>
 
-      {/* 詳細モーダル (出版日を復活) */}
+      {/* 詳細モーダル */}
       {selectedBook && (
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -196,7 +220,7 @@ const BookApp = () => {
             <div style={{fontSize: '13px', lineHeight: '1.8', color: '#444'}}>
               <p><strong>著者:</strong> {selectedBook.author}</p>
               <p><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
-              <p><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p> {/* ← 復活！ */}
+              <p><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
               <p><strong>カテゴリー:</strong> {selectedBook.category}</p>
               <div style={{borderTop: '1px solid #eee', marginTop: '15px', paddingTop: '15px'}}>
                 <p style={{color: '#666'}}><strong>あらすじ:</strong></p>
