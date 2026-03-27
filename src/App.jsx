@@ -6,10 +6,9 @@ const BookApp = () => {
   const [books, setBooks] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('すべて');
+  const [categoryFilter, setCategoryFilter] = useState('すべて');
   const [sortBy, setSortBy] = useState('read_date_desc');
   const [isScanning, setIsScanning] = useState(false);
-  
-  // 詳細表示用の状態
   const [selectedBook, setSelectedBook] = useState(null);
 
   const [formData, setFormData] = useState({ 
@@ -50,26 +49,37 @@ const BookApp = () => {
     }
   };
 
-  // 🔍 フィルタリング & ソートロジック
+  // 🔍 フィルタリング & ソートロジック (カテゴリー検索を強化)
   const getFilteredAndSortedBooks = () => {
     let result = [...books];
+
+    // 1. 文字列検索 (タイトル・著者)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(b => 
         (b.title?.toLowerCase().includes(term)) || 
-        (b.author?.toLowerCase().includes(term)) ||
-        (b.category?.toLowerCase().includes(term))
+        (b.author?.toLowerCase().includes(term))
       );
     }
+
+    // 2. ステータス絞り込み
     if (statusFilter !== 'すべて') {
       result = result.filter(b => b.status === statusFilter);
     }
+
+    // 3. カテゴリー絞り込み
+    if (categoryFilter !== 'すべて') {
+      result = result.filter(b => b.category === categoryFilter);
+    }
+
+    // 4. ソート
     result.sort((a, b) => {
-      if (sortBy === 'read_date_desc') return new Date(b.read_date) - new Date(a.read_date);
-      if (sortBy === 'read_date_asc') return new Date(a.read_date) - new Date(b.read_date);
-      if (sortBy === 'title_asc') return a.title.localeCompare(b.title, 'ja');
+      if (sortBy === 'read_date_desc') return new Date(b.read_date || 0) - new Date(a.read_date || 0);
+      if (sortBy === 'read_date_asc') return new Date(a.read_date || 0) - new Date(b.read_date || 0);
+      if (sortBy === 'title_asc') return (a.title || "").localeCompare(b.title || "", 'ja');
       return 0;
     });
+
     return result;
   };
 
@@ -96,25 +106,18 @@ const BookApp = () => {
     const data = await res.json();
     if (data.items) {
       const info = data.items[0].volumeInfo;
-      const isDuplicate = books.some(book => book.title === info.title);
-      if (isDuplicate && !window.confirm(`「${info.title}」は登録済みです。再度登録しますか？`)) return;
-      
-      setFormData({ 
-        ...formData, id: null, title: info.title || '', author: info.authors?.join(', ') || '不明', 
-        publisher: info.publisher || '不明', published_date: info.publishedDate || '', 
-        summary: info.description || '', image_url: info.imageLinks?.thumbnail || '',
-        category: 'その他'
-      });
+      if (books.some(book => book.title === info.title) && !window.confirm(`「${info.title}」は登録済みです。再度登録しますか？`)) return;
+      setFormData({ ...formData, id: null, title: info.title || '', author: info.authors?.join(', ') || '不明', publisher: info.publisher || '不明', published_date: info.publishedDate || '', summary: info.description || '', image_url: info.imageLinks?.thumbnail || '', category: '小説' });
     }
   };
 
   const styles = {
     container: { padding: '15px', maxWidth: '500px', margin: '0 auto', fontFamily: 'sans-serif', backgroundColor: '#fdfdfd', minHeight: '100vh' },
     form: { background: '#f1f3f5', padding: '15px', borderRadius: '12px', marginBottom: '20px' },
-    label: { fontSize: '11px', color: '#666', marginBottom: '3px', display: 'block' },
-    statusTab: (active) => ({
-      padding: '6px 12px', borderRadius: '15px', border: 'none', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
-      background: active ? '#007bff' : '#eee', color: active ? 'white' : '#666', fontWeight: active ? 'bold' : 'normal'
+    tabScroll: { display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '8px', scrollbarWidth: 'none' },
+    statusTab: (active, color) => ({
+      padding: '6px 12px', borderRadius: '15px', border: 'none', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap',
+      background: active ? color : '#eee', color: active ? 'white' : '#666', fontWeight: active ? 'bold' : 'normal'
     }),
     card: { display: 'flex', gap: '12px', padding: '12px', borderBottom: '1px solid #eee', cursor: 'pointer', background: 'white', position: 'relative' },
     badge: (s) => ({
@@ -122,9 +125,8 @@ const BookApp = () => {
       background: s === '読了' ? '#e1f5fe' : s === '読書中' ? '#fff9c4' : s === '読みたい' ? '#f3e5f5' : '#eee',
       color: s === '読了' ? '#0288d1' : s === '読書中' ? '#fbc02d' : s === '読みたい' ? '#9c27b0' : '#666'
     }),
-    // モーダル用スタイル
-    modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
-    modalContent: { background: 'white', padding: '20px', borderRadius: '15px', maxWidth: '400px', width: '100%', maxHeight: '80vh', overflowY: 'auto' }
+    modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
+    modalContent: { background: 'white', padding: '20px', borderRadius: '15px', maxWidth: '400px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }
   };
 
   return (
@@ -139,25 +141,34 @@ const BookApp = () => {
 
       {/* 入力フォーム */}
       <form onSubmit={handleSubmit} style={styles.form}>
-        <div style={{fontSize: '11px', color: '#007bff', marginBottom: '5px', fontWeight: 'bold'}}>{formData.id ? "● 編集モード" : "● 新規登録"}</div>
-        <input style={{ width: '100%', padding: '10px', marginBottom: '8px', boxSizing: 'border-box' }} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+        <input style={{ width: '100%', padding: '10px', marginBottom: '8px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <div style={{flex: 1}}><select style={{width: '100%', padding: '10px'}} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{categories.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-          <div style={{flex: 1}}><select style={{width: '100%', padding: '10px'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+          <select style={{flex: 1, padding: '10px'}} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{categories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+          <select style={{flex: 1, padding: '10px'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select>
         </div>
-        <textarea style={{ width: '100%', padding: '10px', marginBottom: '8px', fontSize: '13px', boxSizing: 'border-box' }} placeholder="感想..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+        <textarea style={{ width: '100%', padding: '10px', marginBottom: '8px', fontSize: '13px', boxSizing: 'border-box', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="感想..." value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         <button type="submit" style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>{formData.id ? "更新する" : "保存する"}</button>
         {formData.id && <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'8px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録に戻る</button>}
       </form>
 
-      {/* 🔍 検索・ソート */}
-      <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* 🔍 検索・絞り込み・ソートセクション */}
+      <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <input style={{ width: '100%', padding: '12px', borderRadius: '25px', border: '1px solid #ddd', boxSizing: 'border-box' }} placeholder="タイトル・著者名で検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-        <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '5px' }}>
+        
+        {/* ステータス絞り込み */}
+        <div style={styles.tabScroll}>
           {['すべて', ...statuses].map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s)}>{s}</button>
+            <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s, '#007bff')}>{s}</button>
           ))}
         </div>
+
+        {/* カテゴリー絞り込み (新設) */}
+        <div style={styles.tabScroll}>
+          {['すべて', ...categories].map(c => (
+            <button key={c} onClick={() => setCategoryFilter(c)} style={styles.statusTab(categoryFilter === c, '#6c757d')}>{c}</button>
+          ))}
+        </div>
+
         <select style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #eee', fontSize: '12px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
           <option value="read_date_desc">登録が新しい順</option>
           <option value="read_date_asc">登録が古い順</option>
@@ -165,11 +176,12 @@ const BookApp = () => {
         </select>
       </div>
 
+      <div style={{fontSize: '11px', color: '#999', marginBottom: '5px'}}>{filteredBooks.length} 冊を表示中</div>
+
       {/* 一覧表示 */}
       <div style={{ background: 'white', borderRadius: '10px' }}>
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book}); window.scrollTo({top:0, behavior:'smooth'}); }}>
-            {/* アイコンをタップするとモーダルを表示 */}
             <img 
               src={book.image_url || 'https://via.placeholder.com/60x85'} 
               style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '4px', cursor: 'zoom-in' }} 
@@ -177,10 +189,13 @@ const BookApp = () => {
               onClick={(e) => { e.stopPropagation(); setSelectedBook(book); }}
             />
             <div style={{ flex: 1 }}>
-              <span style={styles.badge(book.status)}>{book.status}</span>
+              <div style={{display: 'flex', flexWrap: 'wrap', gap: '2px'}}>
+                <span style={styles.badge(book.status)}>{book.status}</span>
+                <span style={{fontSize: '10px', color: '#888'}}>#{book.category}</span>
+              </div>
               <div style={{ fontWeight: 'bold', fontSize: '14px', marginTop: '4px' }}>{book.title}</div>
               <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
-              {book.status === '読了' && book.finish_date && <div style={{ fontSize: '11px', color: '#2ecc71', marginTop: '3px' }}>🏁 {book.finish_date}</div>}
+              {book.status === '読了' && book.finish_date && <div style={{ fontSize: '11px', color: '#2ecc71', marginTop: '2px' }}>🏁 {book.finish_date}</div>}
             </div>
             <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', top: '10px', border: 'none', background: 'none', color: '#ccc' }}>✕</button>
           </div>
@@ -191,25 +206,17 @@ const BookApp = () => {
       {selectedBook && (
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <div style={{textAlign: 'center', marginBottom: '15px'}}>
-              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 10px rgba(0,0,0,0.2)' }} alt="cover" />
-            </div>
-            <h3 style={{margin: '0 0 10px 0', fontSize: '18px'}}>{selectedBook.title}</h3>
-            <div style={{fontSize: '13px', color: '#666', marginBottom: '10px'}}>
+            <div style={{textAlign: 'center', marginBottom: '15px'}}><img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px' }} alt="cover" /></div>
+            <h3 style={{margin: '0 0 10px 0'}}>{selectedBook.title}</h3>
+            <div style={{fontSize: '13px', lineHeight: '1.6'}}>
               <p><strong>著者:</strong> {selectedBook.author}</p>
               <p><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
-              <p><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
               <p><strong>カテゴリー:</strong> {selectedBook.category}</p>
+              <div style={{borderTop: '1px solid #eee', marginTop: '10px', paddingTop: '10px'}}>
+                <p><strong>あらすじ:</strong><br />{selectedBook.summary || 'データなし'}</p>
+              </div>
             </div>
-            <div style={{borderTop: '1px solid #eee', paddingTop: '10px'}}>
-              <p style={{fontSize: '12px', color: '#333', lineHeight: '1.6'}}><strong>あらすじ:</strong><br />{selectedBook.summary || 'データなし'}</p>
-            </div>
-            <button 
-              onClick={() => setSelectedBook(null)} 
-              style={{ width: '100%', marginTop: '20px', padding: '10px', background: '#333', color: 'white', border: 'none', borderRadius: '8px' }}
-            >
-              閉じる
-            </button>
+            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '20px', padding: '10px', background: '#333', color: 'white', border: 'none', borderRadius: '8px' }}>閉じる</button>
           </div>
         </div>
       )}
