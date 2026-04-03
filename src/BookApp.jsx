@@ -14,13 +14,13 @@ const BookApp = () => {
   const [formData, setFormData] = useState({ 
     id: null, title: '', author: '', publisher: '', published_date: '', 
     summary: '', review: '', read_date: new Date().toISOString().split('T')[0],
-    finish_date: '', category: '小説', status: '積読', image_url: ''
+    finish_date: '', category: '小説', status: '積読', image_url: '',
+    is_favorite: false 
   });
 
   const categories = ['小説', '技術書', 'ビジネス書', '実用書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['読みたい', '積読', '読書中', '読了'];
 
-  // カテゴリーごとの色定義
   const getCategoryColor = (category) => {
     const colors = {
       '小説': '#007bff', '技術書': '#fd7e14', 'ビジネス書': '#28a745', 
@@ -40,7 +40,7 @@ const BookApp = () => {
   }, []);
 
   const resetForm = () => {
-    setFormData({ id: null, title: '', author: '', publisher: '', published_date: '', summary: '', review: '', finish_date: '', read_date: new Date().toISOString().split('T')[0], category: '小説', status: '積読', image_url: '' });
+    setFormData({ id: null, title: '', author: '', publisher: '', published_date: '', summary: '', review: '', finish_date: '', read_date: new Date().toISOString().split('T')[0], category: '小説', status: '積読', image_url: '', is_favorite: false });
   };
 
   const handleSubmit = async (e) => {
@@ -60,6 +60,20 @@ const BookApp = () => {
     fetchBooks();
   };
 
+  // お気に入りボタンの切り替え処理
+  const toggleFavorite = async (e, book) => {
+    e.stopPropagation(); // 詳細画面が開くのを防ぐ
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('books')
+      .update({ is_favorite: !book.is_favorite })
+      .eq('id', book.id)
+      .eq('user_id', user.id);
+    
+    if (error) alert("更新エラー: " + error.message);
+    fetchBooks();
+  };
+
   const deleteBook = async (id) => {
     if (window.confirm('削除しますか？')) {
       const { data: { user } } = await supabase.auth.getUser();
@@ -74,10 +88,21 @@ const BookApp = () => {
       const term = searchTerm.toLowerCase();
       result = result.filter(b => (b.title?.toLowerCase().includes(term)) || (b.author?.toLowerCase().includes(term)));
     }
-    if (statusFilter !== 'すべて') result = result.filter(b => b.status === statusFilter);
+    
+    // 絞り込みロジック
+    if (statusFilter === '★') {
+      result = result.filter(b => b.is_favorite);
+    } else if (statusFilter !== 'すべて') {
+      result = result.filter(b => b.status === statusFilter);
+    }
+    
     if (categoryFilter !== 'すべて') result = result.filter(b => b.category === categoryFilter);
 
+    // ソートロジック（まずお気に入りを優先し、その中で指定の順に並べる）
     result.sort((a, b) => {
+      if (a.is_favorite !== b.is_favorite) {
+        return a.is_favorite ? -1 : 1;
+      }
       if (sortBy === 'read_date_desc') return new Date(b.read_date || 0) - new Date(a.read_date || 0);
       if (sortBy === 'read_date_asc') return new Date(a.read_date || 0) - new Date(b.read_date || 0);
       if (sortBy === 'title_asc') return (a.title || "").localeCompare(b.title || "", 'ja');
@@ -113,7 +138,7 @@ const BookApp = () => {
         ...formData, id: null, title: info.title || '', author: info.authors?.join(', ') || '不明', 
         publisher: info.publisher || '不明', published_date: info.publishedDate || '', 
         summary: info.description || '', image_url: info.imageLinks?.thumbnail || '',
-        category: '小説'
+        category: '小説', is_favorite: false
       });
     }
   };
@@ -138,6 +163,9 @@ const BookApp = () => {
       fontSize: '10px', padding: '2px 8px', borderRadius: '10px', color: 'white', fontWeight: 'bold',
       background: getCategoryColor(cat)
     }),
+    favButton: (isFav) => ({
+      fontSize: '20px', cursor: 'pointer', color: isFav ? '#f1c40f' : '#ddd', transition: 'color 0.2s', marginLeft: 'auto'
+    }),
     modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
     modalContent: { background: 'white', padding: '25px', borderRadius: '15px', maxWidth: '400px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }
   };
@@ -152,7 +180,6 @@ const BookApp = () => {
         <div id="reader" style={{ width: '100%', minHeight: '300px', marginBottom: '15px' }}></div>
       )}
 
-      {/* 登録・編集フォーム */}
       <form onSubmit={handleSubmit} style={styles.form}>
         <input style={styles.inputField} placeholder="タイトル" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
         
@@ -172,12 +199,7 @@ const BookApp = () => {
           </div>
         )}
         
-        <textarea 
-          style={styles.textareaField} 
-          placeholder="感想やメモを残しましょう！" 
-          value={formData.review} 
-          onChange={e => setFormData({...formData, review: e.target.value})} 
-        />
+        <textarea style={styles.textareaField} placeholder="感想やメモを残しましょう！" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         
         <button type="submit" style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>
           {formData.id ? "更新する" : "保存する"}
@@ -185,18 +207,16 @@ const BookApp = () => {
         {formData.id && <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'10px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録に戻る</button>}
       </form>
 
-      {/* 検索・絞り込みセクション（カテゴリー復活！） */}
       <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <input style={{ width: '100%', padding: '12px', borderRadius: '25px', border: '1px solid #ddd', boxSizing: 'border-box' }} placeholder="タイトル・著者検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         
-        {/* ステータス絞り込み */}
+        {/* ステータス絞り込み + お気に入りタブ */}
         <div style={styles.tabScroll}>
-          {['すべて', ...statuses].map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s, '#007bff')}>{s}</button>
+          {['すべて', '★', ...statuses].map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s, s === '★' ? '#f1c40f' : '#007bff')}>{s}</button>
           ))}
         </div>
 
-        {/* カテゴリー絞り込み（復活） */}
         <div style={styles.tabScroll}>
           {['すべて', ...categories].map(c => (
             <button key={c} onClick={() => setCategoryFilter(c)} style={styles.statusTab(categoryFilter === c, '#6c757d')}>{c}</button>
@@ -210,7 +230,6 @@ const BookApp = () => {
         </select>
       </div>
 
-      {/* 本の一覧 */}
       <div>
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
@@ -221,9 +240,16 @@ const BookApp = () => {
               onClick={(e) => { e.stopPropagation(); setSelectedBook(book); }}
             />
             <div style={{ flex: 1 }}>
-              <div style={{display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px'}}>
+              <div style={{display: 'flex', alignItems: 'center', marginBottom: '4px'}}>
                 <span style={styles.badge(book.status)}>{book.status}</span>
                 <span style={styles.categoryBadge(book.category)}>{book.category}</span>
+                {/* お気に入り星マーク */}
+                <span 
+                  onClick={(e) => toggleFavorite(e, book)} 
+                  style={styles.favButton(book.is_favorite)}
+                >
+                  {book.is_favorite ? '★' : '☆'}
+                </span>
               </div>
               <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{book.title}</div>
               <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
@@ -231,12 +257,11 @@ const BookApp = () => {
                 <div style={{ fontSize: '11px', color: '#28a745', marginTop: '4px' }}>🏁 {book.finish_date} 読了</div>
               )}
             </div>
-            <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', top: '10px', border: 'none', background: 'none', color: '#ccc' }}>✕</button>
+            <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', bottom: '10px', border: 'none', background: 'none', color: '#eee', fontSize: '10px' }}>削除</button>
           </div>
         ))}
       </div>
 
-      {/* 詳細モーダル（リッチ表示に復元！） */}
       {selectedBook && (
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -244,19 +269,16 @@ const BookApp = () => {
               <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} alt="cover" />
             </div>
             <h3 style={{margin: '0 0 12px 0', fontSize: '1.2rem'}}>{selectedBook.title}</h3>
-            
             <div style={{fontSize: '13px', lineHeight: '1.8', color: '#444'}}>
               <p><strong>著者:</strong> {selectedBook.author}</p>
               <p><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
               <p><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
               <p><strong>カテゴリー:</strong> {selectedBook.category}</p>
-              
               <div style={{borderTop: '1px solid #eee', marginTop: '15px', paddingTop: '15px'}}>
                 <p style={{color: '#666', marginBottom: '5px'}}><strong>あらすじ:</strong></p>
                 <p style={{fontSize: '13px', color: '#333', whiteSpace: 'pre-wrap'}}>{selectedBook.summary || 'データなし'}</p>
               </div>
             </div>
-            
             <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '25px', padding: '12px', background: '#333', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>閉じる</button>
           </div>
         </div>
