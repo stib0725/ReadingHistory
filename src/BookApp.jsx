@@ -1,22 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { supabase } from './supabaseClient';
+import { Html5Qrcode } from "html5-qrcode";
 
-/**
- * Note: External library "html5-qrcode" is used via CDN script tag in an production environment,
- * but for this React component, we'll ensure the scanning logic is robust.
- * Since we cannot import local files, we'll use the provided environment variables for Firebase.
- */
-
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-const BookApp = () => {
-  const [user, setUser] = useState(null);
+const App = () => {
   const [books, setBooks] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('すべて');
@@ -25,56 +11,15 @@ const BookApp = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [selectedBook, setSelectedBook] = useState(null);
 
-  // Form initial state
-  const initialFormState = { 
-    id: null, 
-    title: '', 
-    author: '', 
-    publisher: '', 
-    published_date: '', 
-    summary: '', 
-    review: '', 
-    read_date: new Date().toISOString().split('T')[0],
-    finish_date: '', 
-    category: '小説', 
-    status: '積読', 
-    image_url: '',
+  const [formData, setFormData] = useState({ 
+    id: null, title: '', author: '', publisher: '', published_date: '', 
+    summary: '', review: '', read_date: new Date().toISOString().split('T')[0],
+    finish_date: '', category: '小説', status: '積読', image_url: '',
     is_favorite: false 
-  };
-
-  const [formData, setFormData] = useState(initialFormState);
+  });
 
   const categories = ['小説', '技術書', 'ビジネス書', '実用書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['読みたい', '積読', '読書中', '読了'];
-
-  // --- Auth logic ---
-  useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  // --- Firestore data fetching ---
-  useEffect(() => {
-    if (!user) return;
-
-    const q = collection(db, 'artifacts', appId, 'users', user.uid, 'books');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const bookData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setBooks(bookData);
-    }, (error) => {
-      console.error("Firestore error:", error);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
 
   const getCategoryColor = (category) => {
     const colors = {
@@ -85,50 +30,72 @@ const BookApp = () => {
     return colors[category] || '#6c757d';
   };
 
+  // Supabaseからデータを取得（実際のプロジェクトでは import した supabase クライアントを使用）
+  const fetchBooks = async () => {
+    try {
+      if (window.supabase) {
+        const { data, error } = await window.supabase.from('books').select('*');
+        if (!error) setBooks(data || []);
+      }
+    } catch (e) {
+      console.error("Fetch error:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchBooks();
+  }, []);
+
   const resetForm = () => {
-    setFormData(initialFormState);
+    setFormData({ 
+      id: null, title: '', author: '', publisher: '', published_date: '', 
+      summary: '', review: '', finish_date: '', 
+      read_date: new Date().toISOString().split('T')[0], 
+      category: '小説', status: '積読', image_url: '', is_favorite: false 
+    });
   };
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
+    if (!window.supabase) return alert("Supabaseが接続されていません");
+
+    const { data: { user } } = await window.supabase.auth.getUser();
     if (!user) return alert("ログインが必要です");
 
     const { id, ...submitData } = formData; 
     if (submitData.finish_date === '') submitData.finish_date = null;
 
-    try {
-      if (id) {
-        const bookRef = doc(db, 'artifacts', appId, 'users', user.uid, 'books', id);
-        await updateDoc(bookRef, submitData);
-      } else {
-        const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'books');
-        await addDoc(colRef, submitData);
-      }
-      resetForm();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (err) {
-      console.error("Save error:", err);
-      alert("保存中にエラーが発生しました。");
+    if (id) {
+      await window.supabase.from('books').update(submitData).eq('id', id).eq('user_id', user.id);
+    } else {
+      await window.supabase.from('books').insert([{ ...submitData, user_id: user.id }]);
     }
+    resetForm();
+    fetchBooks();
   };
 
   const toggleFavorite = async (e, book) => {
-    e.stopPropagation(); 
+    e.stopPropagation();
+    if (!window.supabase) return;
+    const { data: { user } } = await window.supabase.auth.getUser();
     if (!user) return;
 
-    try {
-      const bookRef = doc(db, 'artifacts', appId, 'users', user.uid, 'books', book.id);
-      await updateDoc(bookRef, { is_favorite: !book.is_favorite });
-    } catch (error) {
-      console.error("Favorite toggle error:", error);
-    }
+    const { error } = await window.supabase
+      .from('books')
+      .update({ is_favorite: !book.is_favorite })
+      .eq('id', book.id)
+      .eq('user_id', user.id);
+    
+    if (error) console.error("Update error:", error.message);
+    fetchBooks();
   };
 
   const deleteBook = async (id) => {
     if (window.confirm('削除しますか？')) {
-      if (!user) return;
-      const bookRef = doc(db, 'artifacts', appId, 'users', user.uid, 'books', id);
-      await deleteDoc(bookRef);
+      if (!window.supabase) return;
+      const { data: { user } } = await window.supabase.auth.getUser();
+      await window.supabase.from('books').delete().eq('id', id).eq('user_id', user.id);
+      fetchBooks();
     }
   };
 
@@ -136,16 +103,15 @@ const BookApp = () => {
     let result = [...books];
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      result = result.filter(b => 
-        (b.title?.toLowerCase().includes(term)) || 
-        (b.author?.toLowerCase().includes(term))
-      );
+      result = result.filter(b => (b.title?.toLowerCase().includes(term)) || (b.author?.toLowerCase().includes(term)));
     }
+    
     if (statusFilter === '★') {
       result = result.filter(b => b.is_favorite);
     } else if (statusFilter !== 'すべて') {
       result = result.filter(b => b.status === statusFilter);
     }
+    
     if (categoryFilter !== 'すべて') result = result.filter(b => b.category === categoryFilter);
 
     result.sort((a, b) => {
@@ -158,50 +124,35 @@ const BookApp = () => {
     return result;
   };
 
-  const filteredBooks = getFilteredAndSortedBooks();
-
   const startScan = async () => {
-    // Dynamically loading script because html5-qrcode is an external library
-    if (!window.Html5Qrcode) {
-      const script = document.createElement('script');
-      script.src = "https://unpkg.com/html5-qrcode";
-      script.onload = () => initScanner();
-      document.body.appendChild(script);
-    } else {
-      initScanner();
-    }
-  };
-
-  const initScanner = async () => {
     setIsScanning(true);
+    // 実際に動作させるには HTML5-QRCode ライブラリが必要です
     setTimeout(async () => {
       try {
-        const html5QrCode = new window.Html5Qrcode("reader");
-        await html5QrCode.start(
-          { facingMode: "environment" }, 
-          { fps: 10, qrbox: 250 },
-          async (decodedText) => {
-            await html5QrCode.stop().catch(() => {});
-            setIsScanning(false);
-            fetchBookInfo(decodedText);
-          }, 
-          () => {}
-        );
-      } catch (e) { 
-        console.error("Camera error:", e);
-        setIsScanning(false); 
-      }
+        if (window.Html5Qrcode) {
+          const html5QrCode = new window.Html5Qrcode("reader");
+          await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 },
+            async (decodedText) => {
+              await html5QrCode.stop().catch(() => {});
+              setIsScanning(false);
+              fetchBookInfo(decodedText);
+            }, () => {}
+          );
+        } else {
+          alert("スキャナーライブラリが読み込まれていません");
+          setIsScanning(false);
+        }
+      } catch (e) { setIsScanning(false); }
     }, 100);
   };
 
   const fetchBookInfo = async (isbn) => {
     try {
-      const cleanIsbn = isbn.trim();
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
       const data = await res.json();
-
       if (data.items && data.items.length > 0) {
         const info = data.items[0].volumeInfo;
+        // 取得したデータをフォームに反映させる
         setFormData(prev => ({ 
           ...prev, 
           id: null, 
@@ -211,16 +162,16 @@ const BookApp = () => {
           published_date: info.publishedDate || '', 
           summary: info.description || '', 
           image_url: info.imageLinks?.thumbnail || '',
-          category: '小説',
-          status: '積読',
+          category: '小説', 
           is_favorite: false
         }));
+        // ユーザーが確認できるよう上部へ移動
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        alert("本が見つかりませんでした。手動で入力してください。");
+        alert("本が見つかりませんでした。");
       }
     } catch (error) {
-      console.error("Fetch info error:", error);
-      alert("通信エラーが発生しました。");
+      console.error("Fetch book info error:", error);
     }
   };
 
@@ -245,21 +196,23 @@ const BookApp = () => {
       background: getCategoryColor(cat)
     }),
     favButton: (isFav) => ({
-      fontSize: '22px', cursor: 'pointer', color: isFav ? '#f1c40f' : '#ddd', transition: 'color 0.2s', marginLeft: 'auto', padding: '0 5px'
+      fontSize: '20px', cursor: 'pointer', color: isFav ? '#f1c40f' : '#ddd', marginLeft: 'auto'
     }),
     modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
     modalContent: { background: 'white', padding: '25px', borderRadius: '15px', maxWidth: '400px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }
   };
+
+  const filteredBooks = getFilteredAndSortedBooks();
 
   return (
     <div style={styles.container}>
       <h2 style={{textAlign: 'center', color: '#333'}}>My Library</h2>
       
       {!isScanning ? (
-        <button onClick={startScan} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 4px 0 #1e7e34' }}>📷 バーコードで追加</button>
+        <button onClick={startScan} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>📷 スキャンして追加</button>
       ) : (
         <div style={{ position: 'relative', marginBottom: '15px' }}>
-          <div id="reader" style={{ width: '100%', borderRadius: '12px', overflow: 'hidden' }}></div>
+          <div id="reader" style={{ width: '100%', minHeight: '300px', borderRadius: '12px', overflow: 'hidden' }}></div>
           <button onClick={() => setIsScanning(false)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', zIndex: 10 }}>✕</button>
         </div>
       )}
@@ -283,28 +236,29 @@ const BookApp = () => {
           </div>
         )}
         
-        <textarea style={styles.textareaField} placeholder="読んだ感想やメモを自由に記入しましょう！" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+        <textarea style={styles.textareaField} placeholder="感想やメモを残しましょう！" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         
         <button type="submit" style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>
-          {formData.id ? "内容を更新する" : "本棚に保存する"}
+          {formData.id ? "更新する" : "保存する"}
         </button>
-        {formData.id && (
-          <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'10px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録モードに戻る</button>
-        )}
+        {formData.id && <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'10px', fontSize:'12px', background:'none', border:'none', color:'#888', textDecoration:'underline'}}>新規登録に戻る</button>}
       </form>
 
       <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <input style={{ width: '100%', padding: '12px', borderRadius: '25px', border: '1px solid #ddd', boxSizing: 'border-box' }} placeholder="タイトル・著者名で検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        <input style={{ width: '100%', padding: '12px', borderRadius: '25px', border: '1px solid #ddd', boxSizing: 'border-box' }} placeholder="タイトル・著者検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        
         <div style={styles.tabScroll}>
           {['すべて', '★', ...statuses].map(s => (
             <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s, s === '★' ? '#f1c40f' : '#007bff')}>{s}</button>
           ))}
         </div>
+
         <div style={styles.tabScroll}>
           {['すべて', ...categories].map(c => (
             <button key={c} onClick={() => setCategoryFilter(c)} style={styles.statusTab(categoryFilter === c, '#6c757d')}>{c}</button>
           ))}
         </div>
+
         <select style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #eee', fontSize: '12px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
           <option value="read_date_desc">登録が新しい順</option>
           <option value="read_date_asc">登録が古い順</option>
@@ -313,44 +267,54 @@ const BookApp = () => {
       </div>
 
       <div>
-        {filteredBooks.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>本棚は空です</div>
-        ) : (
-          filteredBooks.map(book => (
-            <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
-              <img 
-                src={book.image_url || 'https://via.placeholder.com/60x85?text=No+Image'} 
-                style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '4px' }} 
-                alt="cover" 
-                onClick={(e) => { e.stopPropagation(); setSelectedBook(book); }}
-              />
-              <div style={{ flex: 1 }}>
-                <div style={{display: 'flex', alignItems: 'center', marginBottom: '4px'}}>
-                  <span style={styles.badge(book.status)}>{book.status}</span>
-                  <span style={styles.categoryBadge(book.category)}>{book.category}</span>
-                  <span onClick={(e) => toggleFavorite(e, book)} style={styles.favButton(book.is_favorite)}>
-                    {book.is_favorite ? '★' : '☆'}
-                  </span>
-                </div>
-                <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{book.title}</div>
-                <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
+        {filteredBooks.map(book => (
+          <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
+            <img 
+              src={book.image_url || 'https://via.placeholder.com/60x85'} 
+              style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '4px' }} 
+              alt="cover" 
+              onClick={(e) => { e.stopPropagation(); setSelectedBook(book); }}
+            />
+            <div style={{ flex: 1 }}>
+              <div style={{display: 'flex', alignItems: 'center', marginBottom: '4px'}}>
+                <span style={styles.badge(book.status)}>{book.status}</span>
+                <span style={styles.categoryBadge(book.category)}>{book.category}</span>
+                <span 
+                  onClick={(e) => toggleFavorite(e, book)} 
+                  style={styles.favButton(book.is_favorite)}
+                >
+                  {book.is_favorite ? '★' : '☆'}
+                </span>
               </div>
-              <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', bottom: '10px', border: 'none', background: 'none', color: '#ddd', fontSize: '11px' }}>削除</button>
+              <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{book.title}</div>
+              <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
+              {book.status === '読了' && book.finish_date && (
+                <div style={{ fontSize: '11px', color: '#28a745', marginTop: '4px' }}>🏁 {book.finish_date} 読了</div>
+              )}
             </div>
-          ))
-        )}
+            <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', bottom: '10px', border: 'none', background: 'none', color: '#eee', fontSize: '10px' }}>削除</button>
+          </div>
+        ))}
       </div>
 
       {selectedBook && (
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div style={{textAlign: 'center', marginBottom: '20px'}}>
-              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px' }} alt="cover" />
+              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} alt="cover" />
             </div>
-            <h3 style={{margin: '0 0 12px 0'}}>{selectedBook.title}</h3>
-            <p style={{fontSize: '13px'}}><strong>著者:</strong> {selectedBook.author}</p>
-            <p style={{fontSize: '13px', color: '#555'}}>{selectedBook.summary || '詳細情報はありません'}</p>
-            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#333', color: 'white', border: 'none', borderRadius: '8px' }}>閉じる</button>
+            <h3 style={{margin: '0 0 12px 0', fontSize: '1.2rem'}}>{selectedBook.title}</h3>
+            <div style={{fontSize: '13px', lineHeight: '1.8', color: '#444'}}>
+              <p><strong>著者:</strong> {selectedBook.author}</p>
+              <p><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
+              <p><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
+              <p><strong>カテゴリー:</strong> {selectedBook.category}</p>
+              <div style={{borderTop: '1px solid #eee', marginTop: '15px', paddingTop: '15px'}}>
+                <p style={{color: '#666', marginBottom: '5px'}}><strong>あらすじ:</strong></p>
+                <p style={{fontSize: '13px', color: '#333', whiteSpace: 'pre-wrap'}}>{selectedBook.summary || 'データなし'}</p>
+              </div>
+            </div>
+            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '25px', padding: '12px', background: '#333', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>閉じる</button>
           </div>
         </div>
       )}
@@ -358,4 +322,4 @@ const BookApp = () => {
   );
 };
 
-export default BookApp;
+export default App;
