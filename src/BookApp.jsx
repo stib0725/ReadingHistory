@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -10,6 +10,10 @@ const App = () => {
   const [sortBy, setSortBy] = useState('read_date_desc');
   const [isScanning, setIsScanning] = useState(false);
   const [selectedBook, setSelectedBook] = useState(null);
+  const [isReady, setIsReady] = useState(false);
+  
+  // Supabase インスタンス保持用
+  const supabaseRef = useRef(null);
 
   const [formData, setFormData] = useState({ 
     id: null, title: '', author: '', publisher: '', published_date: '', 
@@ -21,30 +25,60 @@ const App = () => {
   const categories = ['小説', '技術書', 'ビジネス書', '実用書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['読みたい', '積読', '読書中', '読了'];
 
-  const getCategoryColor = (category) => {
-    const colors = {
-      '小説': '#007bff', '技術書': '#fd7e14', 'ビジネス書': '#28a745', 
-      '漫画': '#e83e8c', '実用書': '#20c997', '雑誌': '#6f42c1', 
-      '新書': '#17a2b8', 'その他': '#6c757d'
-    };
-    return colors[category] || '#6c757d';
-  };
-
-  // Supabaseからデータを取得（実際のプロジェクトでは import した supabase クライアントを使用）
-  const fetchBooks = async () => {
-    try {
-      if (window.supabase) {
-        const { data, error } = await window.supabase.from('books').select('*');
-        if (!error) setBooks(data || []);
+  // ライブラリの動的読み込み (Supabase & HTML5-QRCode)
+  useEffect(() => {
+    const loadScripts = async () => {
+      // Supabaseの読み込み
+      if (!window.supabase) {
+        const supabaseScript = document.createElement('script');
+        supabaseScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+        supabaseScript.async = true;
+        document.body.appendChild(supabaseScript);
+        await new Promise(res => supabaseScript.onload = res);
       }
+
+      // HTML5-QRCodeの読み込み
+      if (!window.Html5Qrcode) {
+        const qrScript = document.createElement('script');
+        qrScript.src = "https://unpkg.com/html5-qrcode";
+        qrScript.async = true;
+        document.body.appendChild(qrScript);
+        await new Promise(res => qrScript.onload = res);
+      }
+
+      // Supabaseの初期化
+      const supabaseUrl = window.__SUPABASE_URL || '';
+      const supabaseAnonKey = window.__SUPABASE_ANON_KEY || '';
+      
+      if (supabaseUrl && supabaseAnonKey && window.supabase) {
+        supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+      }
+
+      setIsReady(true);
+    };
+
+    loadScripts();
+  }, []);
+
+  // データの取得
+  const fetchBooks = async () => {
+    if (!supabaseRef.current) return;
+    try {
+      const { data, error } = await supabaseRef.current
+        .from('books')
+        .select('*');
+      if (error) throw error;
+      setBooks(data || []);
     } catch (e) {
-      console.error("Fetch error:", e);
+      console.error("Fetch error:", e.message);
     }
   };
 
   useEffect(() => {
-    fetchBooks();
-  }, []);
+    if (isReady) {
+      fetchBooks();
+    }
+  }, [isReady]);
 
   const resetForm = () => {
     setFormData({ 
@@ -57,45 +91,98 @@ const App = () => {
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!window.supabase) return alert("Supabaseが接続されていません");
+    if (!supabaseRef.current) return alert("Supabaseの接続設定が読み込まれていません。");
 
-    const { data: { user } } = await window.supabase.auth.getUser();
-    if (!user) return alert("ログインが必要です");
+    try {
+      const { id, ...submitData } = formData; 
+      if (submitData.finish_date === '') submitData.finish_date = null;
 
-    const { id, ...submitData } = formData; 
-    if (submitData.finish_date === '') submitData.finish_date = null;
-
-    if (id) {
-      await window.supabase.from('books').update(submitData).eq('id', id).eq('user_id', user.id);
-    } else {
-      await window.supabase.from('books').insert([{ ...submitData, user_id: user.id }]);
+      if (id) {
+        const { error } = await supabaseRef.current.from('books').update(submitData).eq('id', id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabaseRef.current.from('books').insert([submitData]);
+        if (error) throw error;
+      }
+      resetForm();
+      fetchBooks();
+    } catch (err) {
+      alert("保存エラー: " + err.message);
     }
-    resetForm();
-    fetchBooks();
   };
 
   const toggleFavorite = async (e, book) => {
     e.stopPropagation();
-    if (!window.supabase) return;
-    const { data: { user } } = await window.supabase.auth.getUser();
-    if (!user) return;
-
-    const { error } = await window.supabase
-      .from('books')
-      .update({ is_favorite: !book.is_favorite })
-      .eq('id', book.id)
-      .eq('user_id', user.id);
-    
-    if (error) console.error("Update error:", error.message);
-    fetchBooks();
+    if (!supabaseRef.current) return;
+    try {
+      const { error } = await supabaseRef.current
+        .from('books')
+        .update({ is_favorite: !book.is_favorite })
+        .eq('id', book.id);
+      if (error) throw error;
+      fetchBooks();
+    } catch (err) {
+      console.error(err.message);
+    }
   };
 
   const deleteBook = async (id) => {
-    if (window.confirm('削除しますか？')) {
-      if (!window.supabase) return;
-      const { data: { user } } = await window.supabase.auth.getUser();
-      await window.supabase.from('books').delete().eq('id', id).eq('user_id', user.id);
+    if (!supabaseRef.current) return;
+    if (window.confirm('この本を削除してもよろしいですか？')) {
+      const { error } = await supabaseRef.current.from('books').delete().eq('id', id);
+      if (error) alert(error.message);
       fetchBooks();
+    }
+  };
+
+  const startScan = async () => {
+    if (!window.Html5Qrcode) {
+      alert("スキャナーライブラリを読み込み中です。");
+      return;
+    }
+    setIsScanning(true);
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new window.Html5Qrcode("reader");
+        await html5QrCode.start(
+          { facingMode: "environment" }, 
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          async (decodedText) => {
+            await html5QrCode.stop().catch(() => {});
+            setIsScanning(false);
+            fetchBookInfo(decodedText);
+          }, 
+          () => {}
+        );
+      } catch (e) { 
+        console.error(e);
+        setIsScanning(false); 
+      }
+    }, 300);
+  };
+
+  const fetchBookInfo = async (isbn) => {
+    try {
+      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+      const data = await res.json();
+      if (data.items && data.items.length > 0) {
+        const info = data.items[0].volumeInfo;
+        setFormData(prev => ({ 
+          ...prev, 
+          id: null, 
+          title: info.title || '', 
+          author: info.authors?.join(', ') || '不明', 
+          publisher: info.publisher || '不明', 
+          published_date: info.publishedDate || '', 
+          summary: info.description || '', 
+          image_url: info.imageLinks?.thumbnail || '',
+        }));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        alert("本が見つかりませんでした。");
+      }
+    } catch (error) {
+      console.error("Fetch book info error:", error);
     }
   };
 
@@ -105,13 +192,11 @@ const App = () => {
       const term = searchTerm.toLowerCase();
       result = result.filter(b => (b.title?.toLowerCase().includes(term)) || (b.author?.toLowerCase().includes(term)));
     }
-    
     if (statusFilter === '★') {
       result = result.filter(b => b.is_favorite);
     } else if (statusFilter !== 'すべて') {
       result = result.filter(b => b.status === statusFilter);
     }
-    
     if (categoryFilter !== 'すべて') result = result.filter(b => b.category === categoryFilter);
 
     result.sort((a, b) => {
@@ -122,57 +207,6 @@ const App = () => {
       return 0;
     });
     return result;
-  };
-
-  const startScan = async () => {
-    setIsScanning(true);
-    // 実際に動作させるには HTML5-QRCode ライブラリが必要です
-    setTimeout(async () => {
-      try {
-        if (window.Html5Qrcode) {
-          const html5QrCode = new window.Html5Qrcode("reader");
-          await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 },
-            async (decodedText) => {
-              await html5QrCode.stop().catch(() => {});
-              setIsScanning(false);
-              fetchBookInfo(decodedText);
-            }, () => {}
-          );
-        } else {
-          alert("スキャナーライブラリが読み込まれていません");
-          setIsScanning(false);
-        }
-      } catch (e) { setIsScanning(false); }
-    }, 100);
-  };
-
-  const fetchBookInfo = async (isbn) => {
-    try {
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const data = await res.json();
-      if (data.items && data.items.length > 0) {
-        const info = data.items[0].volumeInfo;
-        // 取得したデータをフォームに反映させる
-        setFormData(prev => ({ 
-          ...prev, 
-          id: null, 
-          title: info.title || '', 
-          author: info.authors?.join(', ') || '不明', 
-          publisher: info.publisher || '不明', 
-          published_date: info.publishedDate || '', 
-          summary: info.description || '', 
-          image_url: info.imageLinks?.thumbnail || '',
-          category: '小説', 
-          is_favorite: false
-        }));
-        // ユーザーが確認できるよう上部へ移動
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      } else {
-        alert("本が見つかりませんでした。");
-      }
-    } catch (error) {
-      console.error("Fetch book info error:", error);
-    }
   };
 
   const styles = {
@@ -193,7 +227,11 @@ const App = () => {
     }),
     categoryBadge: (cat) => ({
       fontSize: '10px', padding: '2px 8px', borderRadius: '10px', color: 'white', fontWeight: 'bold',
-      background: getCategoryColor(cat)
+      background: {
+        '小説': '#007bff', '技術書': '#fd7e14', 'ビジネス書': '#28a745', 
+        '漫画': '#e83e8c', '実用書': '#20c997', '雑誌': '#6f42c1', 
+        '新書': '#17a2b8', 'その他': '#6c757d'
+      }[cat] || '#6c757d'
     }),
     favButton: (isFav) => ({
       fontSize: '20px', cursor: 'pointer', color: isFav ? '#f1c40f' : '#ddd', marginLeft: 'auto'
@@ -209,10 +247,16 @@ const App = () => {
       <h2 style={{textAlign: 'center', color: '#333'}}>My Library</h2>
       
       {!isScanning ? (
-        <button onClick={startScan} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>📷 スキャンして追加</button>
+        <button 
+          onClick={startScan} 
+          style={{ width: '100%', padding: '12px', marginBottom: '15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', opacity: isReady ? 1 : 0.5 }}
+          disabled={!isReady}
+        >
+          {isReady ? '📷 スキャンして追加' : '読み込み中...'}
+        </button>
       ) : (
         <div style={{ position: 'relative', marginBottom: '15px' }}>
-          <div id="reader" style={{ width: '100%', minHeight: '300px', borderRadius: '12px', overflow: 'hidden' }}></div>
+          <div id="reader" style={{ width: '100%', minHeight: '250px', borderRadius: '12px', overflow: 'hidden', background: '#000' }}></div>
           <button onClick={() => setIsScanning(false)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', zIndex: 10 }}>✕</button>
         </div>
       )}
@@ -258,15 +302,12 @@ const App = () => {
             <button key={c} onClick={() => setCategoryFilter(c)} style={styles.statusTab(categoryFilter === c, '#6c757d')}>{c}</button>
           ))}
         </div>
-
-        <select style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #eee', fontSize: '12px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
-          <option value="read_date_desc">登録が新しい順</option>
-          <option value="read_date_asc">登録が古い順</option>
-          <option value="title_asc">タイトル順</option>
-        </select>
       </div>
 
       <div>
+        {!supabaseRef.current && isReady && (
+          <p style={{textAlign:'center', color:'#e74c3c', fontSize:'12px'}}>SupabaseのURLまたはKeyが設定されていません</p>
+        )}
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
             <img 
@@ -288,9 +329,6 @@ const App = () => {
               </div>
               <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{book.title}</div>
               <div style={{ fontSize: '12px', color: '#666' }}>{book.author}</div>
-              {book.status === '読了' && book.finish_date && (
-                <div style={{ fontSize: '11px', color: '#28a745', marginTop: '4px' }}>🏁 {book.finish_date} 読了</div>
-              )}
             </div>
             <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '10px', bottom: '10px', border: 'none', background: 'none', color: '#eee', fontSize: '10px' }}>削除</button>
           </div>
@@ -301,20 +339,12 @@ const App = () => {
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div style={{textAlign: 'center', marginBottom: '20px'}}>
-              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} alt="cover" />
+              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170'} style={{ width: '120px', borderRadius: '8px' }} alt="cover" />
             </div>
-            <h3 style={{margin: '0 0 12px 0', fontSize: '1.2rem'}}>{selectedBook.title}</h3>
-            <div style={{fontSize: '13px', lineHeight: '1.8', color: '#444'}}>
-              <p><strong>著者:</strong> {selectedBook.author}</p>
-              <p><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
-              <p><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
-              <p><strong>カテゴリー:</strong> {selectedBook.category}</p>
-              <div style={{borderTop: '1px solid #eee', marginTop: '15px', paddingTop: '15px'}}>
-                <p style={{color: '#666', marginBottom: '5px'}}><strong>あらすじ:</strong></p>
-                <p style={{fontSize: '13px', color: '#333', whiteSpace: 'pre-wrap'}}>{selectedBook.summary || 'データなし'}</p>
-              </div>
-            </div>
-            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '25px', padding: '12px', background: '#333', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold' }}>閉じる</button>
+            <h3 style={{margin: '0 0 12px 0'}}>{selectedBook.title}</h3>
+            <p><strong>著者:</strong> {selectedBook.author}</p>
+            <p><strong>あらすじ:</strong> {selectedBook.summary || 'なし'}</p>
+            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#333', color: 'white', border: 'none', borderRadius: '8px' }}>閉じる</button>
           </div>
         </div>
       )}
