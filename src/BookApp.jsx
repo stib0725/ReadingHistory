@@ -28,33 +28,45 @@ const App = () => {
   // ライブラリの動的読み込み (Supabase & HTML5-QRCode)
   useEffect(() => {
     const loadScripts = async () => {
-      // Supabaseの読み込み
-      if (!window.supabase) {
-        const supabaseScript = document.createElement('script');
-        supabaseScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-        supabaseScript.async = true;
-        document.body.appendChild(supabaseScript);
-        await new Promise(res => supabaseScript.onload = res);
-      }
+      try {
+        // 1. Supabase JS SDK の読み込み
+        if (!window.supabase) {
+          const supabaseScript = document.createElement('script');
+          supabaseScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+          supabaseScript.async = true;
+          document.body.appendChild(supabaseScript);
+          await new Promise((resolve) => {
+            supabaseScript.onload = resolve;
+          });
+        }
 
-      // HTML5-QRCodeの読み込み
-      if (!window.Html5Qrcode) {
-        const qrScript = document.createElement('script');
-        qrScript.src = "https://unpkg.com/html5-qrcode";
-        qrScript.async = true;
-        document.body.appendChild(qrScript);
-        await new Promise(res => qrScript.onload = res);
-      }
+        // 2. HTML5-QRCode (スキャナー) の読み込み
+        if (!window.Html5Qrcode) {
+          const qrScript = document.createElement('script');
+          qrScript.src = "https://unpkg.com/html5-qrcode";
+          qrScript.async = true;
+          document.body.appendChild(qrScript);
+          await new Promise((resolve) => {
+            qrScript.onload = resolve;
+          });
+        }
 
-      // Supabaseの初期化
-      const supabaseUrl = window.__SUPABASE_URL || '';
-      const supabaseAnonKey = window.__SUPABASE_ANON_KEY || '';
-      
-      if (supabaseUrl && supabaseAnonKey && window.supabase) {
-        supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
-      }
+        // 3. Supabase の初期化
+        // 実行環境のグローバル変数、または手動設定を優先します
+        const supabaseUrl = window.__SUPABASE_URL || ''; // ここに実際のURLを貼り付けることも可能です
+        const supabaseAnonKey = window.__SUPABASE_ANON_KEY || ''; // ここに実際のAnon Keyを貼り付けることも可能です
+        
+        if (supabaseUrl && supabaseAnonKey && window.supabase) {
+          supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+          console.log("Supabase client initialized successfully.");
+        } else {
+          console.error("Supabase config not found. Please set __SUPABASE_URL and __SUPABASE_ANON_KEY.");
+        }
 
-      setIsReady(true);
+        setIsReady(true);
+      } catch (err) {
+        console.error("Failed to load libraries:", err);
+      }
     };
 
     loadScripts();
@@ -75,7 +87,7 @@ const App = () => {
   };
 
   useEffect(() => {
-    if (isReady) {
+    if (isReady && supabaseRef.current) {
       fetchBooks();
     }
   }, [isReady]);
@@ -155,7 +167,7 @@ const App = () => {
           () => {}
         );
       } catch (e) { 
-        console.error(e);
+        console.error("Scanner error:", e);
         setIsScanning(false); 
       }
     }, 300);
@@ -305,8 +317,11 @@ const App = () => {
       </div>
 
       <div>
-        {!supabaseRef.current && isReady && (
-          <p style={{textAlign:'center', color:'#e74c3c', fontSize:'12px'}}>SupabaseのURLまたはKeyが設定されていません</p>
+        {isReady && !supabaseRef.current && (
+          <div style={{textAlign:'center', color:'#e74c3c', fontSize:'12px', background: '#fff0f0', padding: '10px', borderRadius: '8px', border: '1px solid #ffcccc'}}>
+            <strong>Supabaseの接続情報が不足しています。</strong><br/>
+            プレビュー環境の設定、またはコード内のURL/Keyが正しく入力されているか確認してください。
+          </div>
         )}
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
