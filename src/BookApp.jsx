@@ -434,9 +434,17 @@ const App = () => {
               <p style={{margin: '8px 0'}}><strong>著者:</strong> {selectedBook.author}</p>
               <p style={{margin: '8px 0'}}><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
               <p style={{margin: '8px 0'}}><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
-              <p style={{margin: '15px 0 5px 0', fontWeight: 'bold'}}>あらすじ / メモ:</p>
-              <div style={{fontSize: '13px', color: '#555', backgroundColor: '#f8f9fa', padding: '12px', borderRadius: '10px', whiteSpace: 'pre-wrap', border: '1px solid #eee'}}>
-                {selectedBook.review || selectedBook.summary || '記録はありません。'}
+              
+              {/* あらすじの表示 */}
+              <p style={{margin: '15px 0 5px 0', fontWeight: 'bold'}}>あらすじ:</p>
+              <div style={{fontSize: '13px', color: '#555', backgroundColor: '#f0f4f8', padding: '12px', borderRadius: '10px', whiteSpace: 'pre-wrap', border: '1px solid #e1e8ed', marginBottom: '15px'}}>
+                {selectedBook.summary || 'あらすじ情報はありません。'}
+              </div>
+
+              {/* 感想・メモの表示 */}
+              <p style={{margin: '15px 0 5px 0', fontWeight: 'bold'}}>自分の感想・メモ:</p>
+              <div style={{fontSize: '13px', color: '#333', backgroundColor: '#fff9db', padding: '12px', borderRadius: '10px', whiteSpace: 'pre-wrap', border: '1px solid #ffec99'}}>
+                {selectedBook.review || 'メモはありません。'}
               </div>
             </div>
             <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '25px', padding: '14px', background: '#333', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>閉じる</button>
