@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from './supabaseClient';
-import { Html5Qrcode } from "html5-qrcode";
 
-// 注意: 通常のnpm開発環境では import { createClient } from '@supabase/supabase-js' を使用します。
-// ここでは、現在のCDN読み込み構成を維持しつつ、環境変数に対応する書き換え例を示します。
+// 本アプリ: Supabaseを使用した蔵書管理システム
+// 機能: ISBNスキャン、お気に入り、詳細表示、ソート、フィルタリング、重複チェック、ユーザー管理
 
 const App = () => {
   const [books, setBooks] = useState([]);
@@ -38,7 +36,6 @@ const App = () => {
   useEffect(() => {
     const loadScripts = async () => {
       try {
-        // 外部ライブラリの読み込み
         if (!window.supabase) {
           const supabaseScript = document.createElement('script');
           supabaseScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -55,7 +52,6 @@ const App = () => {
           await new Promise((resolve) => { qrScript.onload = resolve; });
         }
 
-        // 環境変数の取得（Vite / CRA / Local 共通対応）
         const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || window.__SUPABASE_URL; 
         const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || window.__SUPABASE_ANON_KEY; 
         
@@ -63,7 +59,7 @@ const App = () => {
           supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
           setDebugInfo('Supabase接続完了');
         } else {
-          setDebugInfo('環境変数が未設定です。手動入力のみ可能です。');
+          setDebugInfo('接続情報未設定');
         }
 
         setIsReady(true);
@@ -98,21 +94,35 @@ const App = () => {
 
   const resetForm = () => {
     setFormData(initialFormState);
+    setErrorMsg(null);
   };
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!supabaseRef.current) {
-      setErrorMsg("Supabaseクライアントが初期化されていないため保存できません。");
+      setErrorMsg("接続エラー: 保存できません。");
       return;
+    }
+
+    // 重複チェック (新規登録時のみ)
+    if (!formData.id) {
+      const isDuplicate = books.some(b => b.title === formData.title && b.author === formData.author);
+      if (isDuplicate) {
+        const confirmResult = window.confirm(`「${formData.title}」は既に登録されています。重複して登録しますか？`);
+        if (!confirmResult) return;
+      }
     }
 
     try {
       setDebugInfo('保存中...');
       const { id, ...submitData } = formData; 
       
-      // 不要なフィールドの削除
-      delete submitData.user_id; 
+      // user_idを取得してセット
+      const { data: { user } } = await supabaseRef.current.auth.getUser();
+      if (user) {
+        submitData.user_id = user.id;
+      }
+
       if (submitData.finish_date === '') submitData.finish_date = null;
 
       let error;
@@ -191,10 +201,17 @@ const App = () => {
       if (data.items && data.items.length > 0) {
         const info = data.items[0].volumeInfo;
         
-        // 取得した情報をフォームに反映
+        // 重複チェック
+        const isDuplicate = books.some(b => b.title === info.title);
+        if (isDuplicate) {
+          setErrorMsg(`注意: 「${info.title}」はすでに本棚にあります。`);
+        } else {
+          setErrorMsg(null);
+        }
+
         setFormData(prev => ({ 
           ...prev, 
-          id: null, // 新規登録にするためnull
+          id: null,
           title: info.title || '', 
           author: info.authors?.join(', ') || '不明', 
           publisher: info.publisher || '不明', 
@@ -205,11 +222,10 @@ const App = () => {
         setDebugInfo('書籍情報を取得しました');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        setDebugInfo('該当する書籍が見つかりませんでした');
+        setDebugInfo('該当する書籍が見てかりませんでした');
       }
     } catch (error) {
       setDebugInfo('API通信エラー');
-      console.error(error);
     }
   };
 
@@ -300,7 +316,7 @@ const App = () => {
 
       {errorMsg && (
         <div style={{ background: '#fff0f0', color: '#d32f2f', padding: '12px', borderRadius: '8px', marginBottom: '15px', fontSize: '13px', border: '1px solid #ffcccc' }}>
-          <strong>エラー:</strong> {errorMsg}
+          <strong>お知らせ:</strong> {errorMsg}
           <button onClick={() => setErrorMsg(null)} style={{float:'right', border:'none', background:'none', color:'#d32f2f', cursor: 'pointer'}}>✕</button>
         </div>
       )}
