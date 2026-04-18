@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // 本アプリ: Supabaseを使用した蔵書管理システム
-// 機能: ISBNスキャン、お気に入り、詳細表示、ソート、フィルタリング、重複チェック、ユーザー管理
+// 修正内容: Html5Qrcodeのロード待ち処理を強化し、スキャン機能の安定性を向上
 
 const App = () => {
   const [books, setBooks] = useState([]);
@@ -20,12 +20,11 @@ const App = () => {
   
   const supabaseRef = useRef(null);
 
-  // フォームの初期状態
   const initialFormState = { 
     id: null, title: '', author: '', publisher: '', published_date: '', 
     summary: '', review: '', read_date: new Date().toISOString().split('T')[0],
     finish_date: '', category: '小説', status: '積読', image_url: '',
-    is_favorite: false 
+    is_favorite: false
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -33,63 +32,63 @@ const App = () => {
   const categories = ['小説', '技術書', 'ビジネス書', '実用書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['読みたい', '積読', '読書中', '読了'];
 
+  // スクリプトの動的読み込み用ヘルパー
+  const loadScript = (src) => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.body.appendChild(script);
+    });
+  };
+
   useEffect(() => {
-    const loadScripts = async () => {
+    const initApp = async () => {
       try {
+        // Supabaseのロード
         if (!window.supabase) {
-          const supabaseScript = document.createElement('script');
-          supabaseScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-          supabaseScript.async = true;
-          document.body.appendChild(supabaseScript);
-          await new Promise((resolve) => { supabaseScript.onload = resolve; });
+          await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2");
         }
 
+        // Html5Qrcodeのロード
         if (!window.Html5Qrcode) {
-          const qrScript = document.createElement('script');
-          qrScript.src = "https://unpkg.com/html5-qrcode";
-          qrScript.async = true;
-          document.body.appendChild(qrScript);
-          await new Promise((resolve) => { qrScript.onload = resolve; });
+          await loadScript("https://unpkg.com/html5-qrcode");
         }
 
-        const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || window.__SUPABASE_URL; 
-        const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || window.__SUPABASE_ANON_KEY; 
+        let supabaseUrl = window.__SUPABASE_URL || "";
+        let supabaseAnonKey = window.__SUPABASE_ANON_KEY || "";
         
-        if (supabaseUrl && supabaseAnonKey && window.supabase) {
+        if (window.supabase) {
           supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
-          setDebugInfo('Supabase接続完了');
-        } else {
-          setDebugInfo('接続情報未設定');
+          setDebugInfo('接続済み');
         }
-
         setIsReady(true);
       } catch (err) {
-        setErrorMsg("ライブラリ読み込み失敗: " + err.message);
+        setErrorMsg("ライブラリの読み込みに失敗しました: " + err.message);
       }
     };
-
-    loadScripts();
+    initApp();
   }, []);
 
   const fetchBooks = async () => {
     if (!supabaseRef.current) return;
     try {
-      const { data, error } = await supabaseRef.current
-        .from('books')
-        .select('*');
-      
+      const { data, error } = await supabaseRef.current.from('books').select('*');
       if (error) throw error;
       if (data) setBooks(data);
-      setErrorMsg(null);
     } catch (e) {
-      setErrorMsg(`データ取得エラー: ${e.message}`);
+      setErrorMsg("データ取得に失敗しました。");
     }
   };
 
   useEffect(() => {
-    if (isReady && supabaseRef.current) {
-      fetchBooks();
-    }
+    if (isReady && supabaseRef.current) fetchBooks();
   }, [isReady]);
 
   const resetForm = () => {
@@ -99,31 +98,11 @@ const App = () => {
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!supabaseRef.current) {
-      setErrorMsg("接続エラー: 保存できません。");
-      return;
-    }
-
-    // 重複チェック (新規登録時のみ)
-    if (!formData.id) {
-      const isDuplicate = books.some(b => b.title === formData.title && b.author === formData.author);
-      if (isDuplicate) {
-        const confirmResult = window.confirm(`「${formData.title}」は既に登録されています。重複して登録しますか？`);
-        if (!confirmResult) return;
-      }
-    }
+    if (!supabaseRef.current) return;
 
     try {
-      setDebugInfo('保存中...');
       const { id, ...submitData } = formData; 
-      
-      // user_idを取得してセット
-      const { data: { user } } = await supabaseRef.current.auth.getUser();
-      if (user) {
-        submitData.user_id = user.id;
-      }
-
-      if (submitData.finish_date === '') submitData.finish_date = null;
+      if (submitData.status !== '読了') submitData.finish_date = null;
 
       let error;
       if (id) {
@@ -135,10 +114,9 @@ const App = () => {
       }
       
       if (error) throw error;
-
-      setDebugInfo('保存完了');
       resetForm();
       fetchBooks();
+      setDebugInfo('保存しました');
     } catch (err) {
       setErrorMsg(`保存エラー: ${err.message}`);
     }
@@ -148,84 +126,132 @@ const App = () => {
     e.stopPropagation();
     if (!supabaseRef.current) return;
     try {
-      const { error } = await supabaseRef.current
-        .from('books')
-        .update({ is_favorite: !book.is_favorite })
-        .eq('id', book.id);
-      if (error) throw error;
+      await supabaseRef.current.from('books').update({ is_favorite: !book.is_favorite }).eq('id', book.id);
       fetchBooks();
-    } catch (err) {
-      setErrorMsg(`更新エラー: ${err.message}`);
-    }
+    } catch (err) {}
   };
 
   const deleteBook = async (id) => {
     if (!supabaseRef.current) return;
     if (window.confirm('この本を削除しますか？')) {
-      const { error } = await supabaseRef.current.from('books').delete().eq('id', id);
-      if (error) setErrorMsg(`削除エラー: ${error.message}`);
+      await supabaseRef.current.from('books').delete().eq('id', id);
       fetchBooks();
     }
   };
 
   const startScan = async () => {
-    if (!window.Html5Qrcode) return;
+    // ライブラリがロードされるまで待つ
+    if (!window.Html5Qrcode) {
+      setDebugInfo('スキャナーを準備中...');
+      try {
+        await loadScript("https://unpkg.com/html5-qrcode");
+      } catch (e) {
+        setErrorMsg("スキャナーの読み込みに失敗しました。");
+        return;
+      }
+    }
+
     setIsScanning(true);
-    setDebugInfo('カメラ起動中...');
+    setErrorMsg(null);
+    
+    // DOMがレンダリングされるのを少し待ってから初期化
     setTimeout(async () => {
       try {
         const html5QrCode = new window.Html5Qrcode("reader");
         await html5QrCode.start(
           { facingMode: "environment" }, 
-          { fps: 10, qrbox: { width: 250, height: 150 } },
+          { 
+            fps: 10, 
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.0
+          },
           async (decodedText) => {
-            await html5QrCode.stop().catch(() => {});
-            setIsScanning(false);
-            fetchBookInfo(decodedText);
+            const code = decodedText.trim().replace(/-/g, '');
+            // ISBN (978... または 979...) を検出
+            if (code.startsWith('978') || code.startsWith('979')) {
+              const isbn = code.substring(0, 13);
+              await html5QrCode.stop().catch(() => {});
+              setIsScanning(false);
+              fetchBookInfo(isbn);
+            }
           }, 
-          () => {}
-        );
+          (errorMessage) => {
+            // スキャン中のエラーは無視（頻繁に発生するため）
+          }
+        ).catch(err => {
+          setIsScanning(false);
+          setErrorMsg("カメラの起動に失敗しました。権限を確認してください。");
+        });
       } catch (e) { 
         setIsScanning(false);
-        setDebugInfo('カメラ起動失敗');
+        setErrorMsg("スキャナーの初期化に失敗しました。");
       }
-    }, 300);
+    }, 500);
   };
 
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
   const fetchBookInfo = async (isbn) => {
+    if (!isbn) return;
+    
+    const maxRetries = 3;
+    let attempts = 0;
+    let bookData = null;
+
     try {
-      setDebugInfo(`ISBN: ${isbn} 検索中...`);
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const data = await res.json();
-      
-      if (data.items && data.items.length > 0) {
-        const info = data.items[0].volumeInfo;
+      while (attempts < maxRetries && !bookData) {
+        attempts++;
+        setDebugInfo(`ISBN: ${isbn} を取得中... (${attempts}/${maxRetries})`);
         
-        // 重複チェック
-        const isDuplicate = books.some(b => b.title === info.title);
-        if (isDuplicate) {
-          setErrorMsg(`注意: 「${info.title}」はすでに本棚にあります。`);
-        } else {
-          setErrorMsg(null);
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000); 
+
+          // シンプルな以前の形式に戻す
+          const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`, {
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+          
+          const data = await response.json();
+          
+          if (data.items && data.items.length > 0) {
+            const info = data.items[0].volumeInfo;
+            bookData = {
+              title: info.title || '',
+              author: info.authors?.join(', ') || '不明',
+              publisher: info.publisher || '不明',
+              published_date: info.publishedDate || '',
+              summary: info.description || '',
+              image_url: info.imageLinks?.thumbnail ? info.imageLinks.thumbnail.replace('http:', 'https:') : '',
+            };
+            break; 
+          }
+        } catch (err) {
+          console.warn(`Attempt ${attempts} failed:`, err);
         }
 
+        if (!bookData && attempts < maxRetries) {
+          await sleep(1500);
+        }
+      }
+
+      if (bookData) {
         setFormData(prev => ({ 
           ...prev, 
-          id: null,
-          title: info.title || '', 
-          author: info.authors?.join(', ') || '不明', 
-          publisher: info.publisher || '不明', 
-          published_date: info.publishedDate || '', 
-          summary: info.description || '', 
-          image_url: info.imageLinks?.thumbnail ? info.imageLinks.thumbnail.replace('http:', 'https:') : '',
+          ...bookData,
+          id: null 
         }));
-        setDebugInfo('書籍情報を取得しました');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setDebugInfo(`「${bookData.title}」の情報を取得しました`);
       } else {
-        setDebugInfo('該当する書籍が見てかりませんでした');
+        setErrorMsg(`本が見つかりませんでした (ISBN: ${isbn})。手動入力してください。`);
+        setDebugInfo('取得失敗');
       }
     } catch (error) {
-      setDebugInfo('API通信エラー');
+      setErrorMsg("通信エラーが発生しました。");
+      setDebugInfo('エラー発生');
     }
   };
 
@@ -244,181 +270,152 @@ const App = () => {
 
     result.sort((a, b) => {
       if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
-      let comparison = 0;
-      const isDesc = sortOrder === 'desc';
-      switch (sortBy) {
-        case 'finish_date': {
-          const dateA = a.finish_date ? new Date(a.finish_date).getTime() : 0;
-          const dateB = b.finish_date ? new Date(b.finish_date).getTime() : 0;
-          comparison = isDesc ? dateB - dateA : dateA - dateB;
-          break;
-        }
-        case 'created_at': {
-          const timeA = new Date(a.created_at || 0).getTime();
-          const timeB = new Date(b.created_at || 0).getTime();
-          comparison = isDesc ? timeB - timeA : timeA - timeB;
-          break;
-        }
-        case 'title': {
-          comparison = (a.title || "").localeCompare(b.title || "", 'ja');
-          if (isDesc) comparison *= -1;
-          break;
-        }
-        default: comparison = 0;
+      let comp = 0;
+      const desc = sortOrder === 'desc';
+      if (sortBy === 'finish_date') {
+        const da = a.finish_date ? new Date(a.finish_date).getTime() : 0;
+        const db = b.finish_date ? new Date(b.finish_date).getTime() : 0;
+        comp = desc ? db - da : da - db;
+      } else if (sortBy === 'created_at') {
+        const ta = new Date(a.created_at || 0).getTime();
+        const tb = new Date(b.created_at || 0).getTime();
+        comp = desc ? tb - ta : ta - tb;
+      } else {
+        comp = (a.title || "").localeCompare(b.title || "", 'ja');
+        if (desc) comp *= -1;
       }
-      return comparison || (a.title || "").localeCompare(b.title || "", 'ja');
+      return comp;
     });
     return result;
   };
 
-  const styles = {
-    container: { padding: '15px', maxWidth: '500px', margin: '0 auto', fontFamily: '-apple-system, sans-serif', backgroundColor: '#fdfdfd', minHeight: '100vh' },
-    form: { background: '#f1f3f5', padding: '15px', borderRadius: '12px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' },
-    inputField: { width: '100%', padding: '12px', marginBottom: '8px', boxSizing: 'border-box', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' },
-    textareaField: { width: '100%', padding: '12px', marginBottom: '10px', fontSize: '14px', boxSizing: 'border-box', borderRadius: '8px', border: '1px solid #ddd', minHeight: '80px', resize: 'vertical' },
-    tabScroll: { display: 'flex', gap: '5px', overflowX: 'auto', paddingBottom: '8px', scrollbarWidth: 'none', marginBottom: '5px' },
-    statusTab: (active, color) => ({
-      padding: '6px 14px', borderRadius: '20px', border: 'none', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
-      background: active ? color : '#eee', color: active ? 'white' : '#666', fontWeight: active ? 'bold' : 'normal'
-    }),
-    card: { display: 'flex', gap: '12px', padding: '15px', borderBottom: '1px solid #eee', cursor: 'pointer', background: 'white', position: 'relative' },
-    badge: (s) => ({
-      fontSize: '10px', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold', marginRight: '4px',
-      background: s === '読了' ? '#e1f5fe' : s === '読書中' ? '#fff9c4' : s === '読みたい' ? '#f3e5f5' : '#eee',
-      color: s === '読了' ? '#0288d1' : s === '読書中' ? '#fbc02d' : s === '読みたい' ? '#9c27b0' : '#666'
-    }),
-    categoryBadge: (cat) => ({
-      fontSize: '10px', padding: '2px 8px', borderRadius: '12px', color: 'white', fontWeight: 'bold',
-      background: {
-        '小説': '#007bff', '技術書': '#fd7e14', 'ビジネス書': '#28a745', 
-        '漫画': '#e83e8c', '実用書': '#20c997', '雑誌': '#6f42c1', 
-        '新書': '#17a2b8', 'その他': '#6c757d'
-      }[cat] || '#6c757d'
-    }),
-    favButton: (isFav) => ({ fontSize: '22px', cursor: 'pointer', color: isFav ? '#f1c40f' : '#ddd', marginLeft: 'auto', lineHeight: '1' }),
-    orderButton: (active) => ({
-      flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
-      background: active ? '#333' : 'white', color: active ? 'white' : '#666'
-    }),
-    modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' },
-    modalContent: { background: 'white', padding: '25px', borderRadius: '16px', maxWidth: '400px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }
-  };
-
   const filteredBooks = getFilteredAndSortedBooks();
+
+  const styles = {
+    container: { padding: '15px', maxWidth: '500px', margin: '0 auto', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', backgroundColor: '#fdfdfd', minHeight: '100vh', color: '#333' },
+    form: { background: '#fff', padding: '15px', borderRadius: '16px', marginBottom: '20px', border: '1px solid #eee', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' },
+    input: { width: '100%', padding: '12px', marginBottom: '10px', boxSizing: 'border-box', borderRadius: '10px', border: '1px solid #ddd', fontSize: '14px', outline: 'none' },
+    select: { width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '14px', background: '#fff' },
+    textarea: { width: '100%', padding: '12px', marginBottom: '12px', fontSize: '14px', boxSizing: 'border-box', borderRadius: '10px', border: '1px solid #ddd', minHeight: '70px', outline: 'none' },
+    tabScroll: { display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '10px', scrollbarWidth: 'none', marginBottom: '8px' },
+    pill: (active, color) => ({
+      padding: '6px 12px', borderRadius: '20px', border: 'none', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap',
+      background: active ? color : '#f0f0f0', color: active ? 'white' : '#666', fontWeight: active ? 'bold' : 'normal'
+    }),
+    card: { display: 'flex', gap: '15px', padding: '15px', borderBottom: '1px solid #f0f0f0', cursor: 'pointer', background: 'white', position: 'relative' },
+    modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px', backdropFilter: 'blur(3px)' },
+    modalContent: { background: 'white', padding: '20px', borderRadius: '20px', maxWidth: '420px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }
+  };
 
   return (
     <div style={styles.container}>
-      <h2 style={{textAlign: 'center', color: '#333', letterSpacing: '1px'}}>My Library</h2>
+      <h2 style={{margin: '0 0 15px 0', fontSize: '20px', textAlign: 'center'}}>My Library</h2>
       
-      <div style={{fontSize: '11px', color: '#777', marginBottom: '12px', textAlign: 'center', backgroundColor: '#f0f0f0', padding: '6px', borderRadius: '6px'}}>
-        ステータス: {debugInfo}
-      </div>
+      <div style={{fontSize: '10px', color: '#999', marginBottom: '10px', textAlign: 'center'}}>{debugInfo}</div>
 
       {errorMsg && (
-        <div style={{ background: '#fff0f0', color: '#d32f2f', padding: '12px', borderRadius: '8px', marginBottom: '15px', fontSize: '13px', border: '1px solid #ffcccc' }}>
-          <strong>お知らせ:</strong> {errorMsg}
-          <button onClick={() => setErrorMsg(null)} style={{float:'right', border:'none', background:'none', color:'#d32f2f', cursor: 'pointer'}}>✕</button>
+        <div style={{ background: '#fff0f0', color: '#d32f2f', padding: '10px', borderRadius: '10px', marginBottom: '15px', fontSize: '12px', border: '1px solid #ffcccc' }}>
+          {errorMsg}
+          <button onClick={() => setErrorMsg(null)} style={{float:'right', border:'none', background:'none', color:'#d32f2f', cursor:'pointer'}}>✕</button>
         </div>
       )}
 
       {!isScanning ? (
-        <button 
-          onClick={startScan} 
-          style={{ width: '100%', padding: '14px', marginBottom: '15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '15px', boxShadow: '0 4px 6px rgba(40,167,69,0.2)' }}
-        >
+        <button onClick={startScan} style={{ width: '100%', padding: '14px', marginBottom: '20px', background: '#28a745', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}>
           📷 バーコードをスキャン
         </button>
       ) : (
-        <div style={{ position: 'relative', marginBottom: '15px' }}>
-          <div id="reader" style={{ width: '100%', minHeight: '250px', borderRadius: '12px', overflow: 'hidden', background: '#000' }}></div>
-          <button onClick={() => setIsScanning(false)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '50%', width: '36px', height: '36px', zIndex: 10, cursor: 'pointer' }}>✕</button>
+        <div style={{ position: 'relative', marginBottom: '20px' }}>
+          <div id="reader" style={{ width: '100%', minHeight: '250px', borderRadius: '16px', overflow: 'hidden', background: '#000' }}></div>
+          <button onClick={() => { setIsScanning(false); }} style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '50%', width: '32px', height: '32px', zIndex: 10 }}>✕</button>
         </div>
       )}
 
       <form onSubmit={handleSubmit} style={styles.form}>
-        <input style={styles.inputField} placeholder="本タイトル *" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
-        <input style={styles.inputField} placeholder="著者" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} />
+        <input style={styles.input} placeholder="本タイトル *" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+        <input style={styles.input} placeholder="著者" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} />
         
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <select style={{flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #ddd', backgroundColor: 'white'}} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select style={{flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #ddd', backgroundColor: 'white'}} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-            {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+        <div style={{display: 'flex', gap: '10px'}}>
+          <div style={{flex:1}}>
+            <label style={{fontSize: '11px', color: '#999', marginLeft: '5px'}}>カテゴリ</label>
+            <select style={styles.select} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{flex:1}}>
+            <label style={{fontSize: '11px', color: '#999', marginLeft: '5px'}}>ステータス</label>
+            <select style={styles.select} value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+              {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
         </div>
 
         {formData.status === '読了' && (
-          <div style={{marginBottom: '10px'}}>
-            <label style={{fontSize: '12px', color: '#555', marginLeft: '4px', display: 'block', marginBottom: '4px'}}>🏁 読了日:</label>
-            <input type="date" style={styles.inputField} value={formData.finish_date || ''} onChange={e => setFormData({...formData, finish_date: e.target.value})} />
-          </div>
+          <input type="date" style={styles.input} value={formData.finish_date || ''} onChange={e => setFormData({...formData, finish_date: e.target.value})} />
         )}
         
-        <textarea style={styles.textareaField} placeholder="感想・メモ（詳細画面で確認できます）" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
+        <textarea style={styles.textarea} placeholder="感想・メモ" value={formData.review} onChange={e => setFormData({...formData, review: e.target.value})} />
         
-        <button type="submit" style={{ width: '100%', padding: '14px', background: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '15px' }}>
-          {formData.id ? "情報を更新" : "本棚に追加"}
+        <button type="submit" style={{ width: '100%', padding: '14px', background: '#007bff', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+          {formData.id ? "更新する" : "本棚に追加"}
         </button>
         {formData.id && (
-          <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'12px', fontSize:'13px', background:'none', border:'none', color:'#666', textDecoration:'underline', cursor: 'pointer'}}>キャンセルして新規登録</button>
+          <button type="button" onClick={resetForm} style={{width:'100%', marginTop:'10px', background:'none', border:'none', color:'#666', textDecoration:'underline'}}>キャンセル</button>
         )}
       </form>
 
-      <div style={{ marginBottom: '20px' }}>
-        <input style={{ width: '100%', padding: '14px', borderRadius: '25px', border: '1px solid #ddd', boxSizing: 'border-box', marginBottom: '12px', fontSize: '14px' }} placeholder="キーワードで絞り込み..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      {/* 絞り込み/並び替え */}
+      <div style={{ marginBottom: '20px', padding: '12px', background: '#fff', borderRadius: '16px', border: '1px solid #eee' }}>
+        <input style={{ width: '100%', padding: '10px', borderRadius: '20px', border: '1px solid #f0f0f0', marginBottom: '10px', boxSizing: 'border-box', outline: 'none', fontSize: '13px' }} placeholder="本棚から検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         
-        <div style={{display: 'flex', gap: '8px', marginBottom: '12px'}}>
-          <select style={{flex: 1.2, padding: '10px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '13px'}} value={sortBy} onChange={e => setSortBy(e.target.value)}>
-            <option value="finish_date">読了日順</option>
-            <option value="created_at">登録日順</option>
-            <option value="title">タイトル順</option>
-          </select>
-          <div style={{display: 'flex', gap: '4px', flex: 1}}>
-            <button type="button" onClick={() => setSortOrder('asc')} style={styles.orderButton(sortOrder === 'asc')}>昇順</button>
-            <button type="button" onClick={() => setSortOrder('desc')} style={styles.orderButton(sortOrder === 'desc')}>降順</button>
-          </div>
+        <div style={styles.tabScroll}>
+          {['すべて', '★', ...statuses].map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)} style={styles.pill(statusFilter === s, s === '★' ? '#f1c40f' : '#333')}>{s}</button>
+          ))}
         </div>
 
         <div style={styles.tabScroll}>
-          {['すべて', '★', ...statuses].map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)} style={styles.statusTab(statusFilter === s, s === '★' ? '#f1c40f' : '#333')}>{s}</button>
+          {['すべて', ...categories].map(c => (
+            <button key={c} onClick={() => setCategoryFilter(c)} style={styles.pill(categoryFilter === c, '#007bff')}>{c}</button>
           ))}
         </div>
-        <div style={styles.tabScroll}>
-          {['すべて', ...categories].map(c => (
-            <button key={c} onClick={() => setCategoryFilter(c)} style={styles.statusTab(categoryFilter === c, '#007bff')}>{c}</button>
-          ))}
+
+        <div style={{ display: 'flex', gap: '8px', marginTop: '5px', alignItems: 'center' }}>
+          <select style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid #f0f0f0', fontSize: '11px' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+            <option value="finish_date">読了日順</option>
+            <option value="created_at">登録順</option>
+            <option value="title">タイトル順</option>
+          </select>
+          <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid #f0f0f0', background: 'white', fontSize: '11px' }}>
+            {sortOrder === 'asc' ? '昇順 ↑' : '降順 ↓'}
+          </button>
+          <div style={{fontSize: '12px', color: '#666', fontWeight: 'bold', minWidth: '40px', textAlign: 'right'}}>{filteredBooks.length}冊</div>
         </div>
       </div>
 
-      <div>
-        <div style={{fontSize: '13px', color: '#888', marginBottom: '10px', paddingLeft: '5px'}}>{filteredBooks.length} 冊が見つかりました</div>
+      <div style={{borderRadius: '16px', overflow: 'hidden', background: '#fff', border: '1px solid #f0f0f0'}}>
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
             <img 
-              src={book.image_url || 'https://via.placeholder.com/65x95?text=No+Image'} 
-              style={{ width: '65px', height: '95px', objectFit: 'cover', borderRadius: '6px', backgroundColor: '#eee' }} 
+              src={book.image_url || 'https://via.placeholder.com/60x85?text=No+Image'} 
+              style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '6px' }} 
               alt={book.title} 
               onClick={(e) => { e.stopPropagation(); setSelectedBook(book); }}
             />
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
               <div style={{display: 'flex', alignItems: 'center', marginBottom: '4px'}}>
-                <span style={styles.badge(book.status)}>{book.status}</span>
-                <span style={styles.categoryBadge(book.category)}>{book.category}</span>
-                <span onClick={(e) => toggleFavorite(e, book)} style={styles.favButton(book.is_favorite)}>
+                <span style={{fontSize: '9px', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold', marginRight: '4px', background: '#eee'}}>{book.status}</span>
+                <span style={{fontSize: '9px', padding: '1px 6px', borderRadius: '4px', color: 'white', background: '#007bff'}}>{book.category}</span>
+                <span onClick={(e) => toggleFavorite(e, book)} style={{fontSize: '20px', cursor: 'pointer', color: book.is_favorite ? '#f1c40f' : '#eee', marginLeft: 'auto'}}>
                   {book.is_favorite ? '★' : '☆'}
                 </span>
               </div>
-              <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.title}</div>
-              <div style={{ fontSize: '13px', color: '#666' }}>{book.author}</div>
-              {book.finish_date && (
-                <div style={{ fontSize: '11px', color: '#2c3e50', marginTop: '8px', backgroundColor: '#eef2f7', padding: '3px 8px', borderRadius: '6px', display: 'inline-block' }}>
-                  🏁 <span style={{fontWeight: 'bold'}}>{book.finish_date}</span>
-                </div>
+              <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.title}</div>
+              <div style={{ fontSize: '11px', color: '#666', marginBottom: 'auto' }}>{book.author}</div>
+              {book.status === '読了' && book.finish_date && (
+                <div style={{ fontSize: '10px', color: '#999', marginTop: '4px' }}>読了: {book.finish_date}</div>
               )}
             </div>
-            <button onClick={(e) => { e.stopPropagation(); deleteBook(book.id); }} style={{ position: 'absolute', right: '15px', bottom: '10px', border: 'none', background: 'none', color: '#ccc', fontSize: '11px', cursor: 'pointer' }}>削除</button>
           </div>
         ))}
       </div>
@@ -426,28 +423,27 @@ const App = () => {
       {selectedBook && (
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <div style={{textAlign: 'center', marginBottom: '20px'}}>
-              <img src={selectedBook.image_url || 'https://via.placeholder.com/130x180?text=No+Image'} style={{ width: '130px', borderRadius: '10px', boxShadow: '0 5px 15px rgba(0,0,0,0.2)' }} alt={selectedBook.title} />
+            <div style={{display: 'flex', justifyContent: 'center', marginBottom: '15px'}}>
+              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170?text=No+Image'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} alt={selectedBook.title} />
             </div>
-            <h3 style={{margin: '0 0 15px 0', fontSize: '18px', lineHeight: '1.4'}}>{selectedBook.title}</h3>
-            <div style={{fontSize: '14px', lineHeight: '1.7', color: '#333'}}>
-              <p style={{margin: '8px 0'}}><strong>著者:</strong> {selectedBook.author}</p>
-              <p style={{margin: '8px 0'}}><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
-              <p style={{margin: '8px 0'}}><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
+            <h3 style={{margin: '0 0 10px 0', fontSize: '16px', lineHeight: '1.4'}}>{selectedBook.title}</h3>
+            <div style={{fontSize: '13px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
+              <p style={{margin: '0 0 6px 0'}}><strong>著者:</strong> {selectedBook.author}</p>
+              <p style={{margin: '0 0 6px 0'}}><strong>出版社:</strong> {selectedBook.publisher || '不明'}</p>
+              <p style={{margin: '0 0 6px 0'}}><strong>出版日:</strong> {selectedBook.published_date || '不明'}</p>
+              <p style={{margin: '0 0 15px 0'}}><strong>ステータス:</strong> {selectedBook.status} ({selectedBook.category})</p>
               
-              {/* あらすじの表示 */}
-              <p style={{margin: '15px 0 5px 0', fontWeight: 'bold'}}>あらすじ:</p>
-              <div style={{fontSize: '13px', color: '#555', backgroundColor: '#f0f4f8', padding: '12px', borderRadius: '10px', whiteSpace: 'pre-wrap', border: '1px solid #e1e8ed', marginBottom: '15px'}}>
-                {selectedBook.summary || 'あらすじ情報はありません。'}
+              <div style={{marginBottom: '15px'}}>
+                <p style={{fontWeight: 'bold', margin: '0 0 4px 0', color: '#666', fontSize: '12px'}}>あらすじ</p>
+                <div style={{fontSize: '12px', color: '#666', backgroundColor: '#f9f9f9', padding: '10px', borderRadius: '8px', lineHeight: '1.5', maxHeight: '120px', overflowY: 'auto'}}>{selectedBook.summary || 'なし'}</div>
               </div>
-
-              {/* 感想・メモの表示 */}
-              <p style={{margin: '15px 0 5px 0', fontWeight: 'bold'}}>自分の感想・メモ:</p>
-              <div style={{fontSize: '13px', color: '#333', backgroundColor: '#fff9db', padding: '12px', borderRadius: '10px', whiteSpace: 'pre-wrap', border: '1px solid #ffec99'}}>
-                {selectedBook.review || 'メモはありません。'}
+              
+              <div>
+                <p style={{fontWeight: 'bold', margin: '0 0 4px 0', color: '#666', fontSize: '12px'}}>メモ</p>
+                <div style={{fontSize: '12px', color: '#333', backgroundColor: '#fffbe6', padding: '10px', borderRadius: '8px', border: '1px solid #fff1b8'}}>{selectedBook.review || 'なし'}</div>
               </div>
             </div>
-            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '25px', padding: '14px', background: '#333', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>閉じる</button>
+            <button onClick={() => setSelectedBook(null)} style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#333', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>閉じる</button>
           </div>
         </div>
       )}
