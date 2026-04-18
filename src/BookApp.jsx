@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // 本アプリ: Supabaseを使用した蔵書管理システム
-// 修正内容: Html5Qrcodeのロード待ち処理を強化し、スキャン機能の安定性を向上
+// 修正内容: デプロイ環境でのSupabase初期化エラー（URL未定義）を回避するガード処理を追加
 
 const App = () => {
   const [books, setBooks] = useState([]);
@@ -61,16 +61,29 @@ const App = () => {
           await loadScript("https://unpkg.com/html5-qrcode");
         }
 
-        let supabaseUrl = window.__SUPABASE_URL || "";
-        let supabaseAnonKey = window.__SUPABASE_ANON_KEY || "";
+        // 環境変数の取得（存在しない場合は既存のURLをデフォルトにする）
+        // window.__SUPABASE_URL などが定義されていない場合を考慮
+        const supabaseUrl = (typeof window !== 'undefined' && window.__SUPABASE_URL) 
+          ? window.__SUPABASE_URL 
+          : "";
+          
+        const supabaseAnonKey = (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY) 
+          ? window.__SUPABASE_ANON_KEY 
+          : "";
         
         if (window.supabase) {
+          // URLとKeyが空でないことを確認してから作成
+          if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('undefined')) {
+            throw new Error("Supabaseの接続情報が正しく設定されていません。URLまたはKeyが不足しています。");
+          }
+          
           supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
-          setDebugInfo('接続済み');
+          setDebugInfo('データベース接続完了');
         }
         setIsReady(true);
       } catch (err) {
-        setErrorMsg("ライブラリの読み込みに失敗しました: " + err.message);
+        console.error("Initialization error:", err);
+        setErrorMsg("初期化に失敗しました: " + err.message);
       }
     };
     initApp();
@@ -140,7 +153,6 @@ const App = () => {
   };
 
   const startScan = async () => {
-    // ライブラリがロードされるまで待つ
     if (!window.Html5Qrcode) {
       setDebugInfo('スキャナーを準備中...');
       try {
@@ -154,7 +166,6 @@ const App = () => {
     setIsScanning(true);
     setErrorMsg(null);
     
-    // DOMがレンダリングされるのを少し待ってから初期化
     setTimeout(async () => {
       try {
         const html5QrCode = new window.Html5Qrcode("reader");
@@ -167,7 +178,6 @@ const App = () => {
           },
           async (decodedText) => {
             const code = decodedText.trim().replace(/-/g, '');
-            // ISBN (978... または 979...) を検出
             if (code.startsWith('978') || code.startsWith('979')) {
               const isbn = code.substring(0, 13);
               await html5QrCode.stop().catch(() => {});
@@ -175,12 +185,10 @@ const App = () => {
               fetchBookInfo(isbn);
             }
           }, 
-          (errorMessage) => {
-            // スキャン中のエラーは無視（頻繁に発生するため）
-          }
+          () => {}
         ).catch(err => {
           setIsScanning(false);
-          setErrorMsg("カメラの起動に失敗しました。権限を確認してください。");
+          setErrorMsg("カメラの起動に失敗しました。HTTPS環境であることと、カメラ権限を確認してください。");
         });
       } catch (e) { 
         setIsScanning(false);
@@ -207,7 +215,6 @@ const App = () => {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 8000); 
 
-          // シンプルな以前の形式に戻す
           const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`, {
             signal: controller.signal
           });
@@ -244,7 +251,7 @@ const App = () => {
           ...bookData,
           id: null 
         }));
-        setDebugInfo(`「${bookData.title}」の情報を取得しました`);
+        setDebugInfo(`「${bookData.title}」を取得しました`);
       } else {
         setErrorMsg(`本が見つかりませんでした (ISBN: ${isbn})。手動入力してください。`);
         setDebugInfo('取得失敗');
