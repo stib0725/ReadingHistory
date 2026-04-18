@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // 本アプリ: Supabaseを使用した蔵書管理システム
-// 修正内容: デプロイ環境でのSupabase初期化エラー（URL未定義）を回避するガード処理を追加
+// 修正内容: Vercel/Vite環境変数の読み込み(import.meta.env)に対応し、接続エラーを解消
 
 const App = () => {
   const [books, setBooks] = useState([]);
@@ -32,7 +32,6 @@ const App = () => {
   const categories = ['小説', '技術書', 'ビジネス書', '実用書', '漫画', '雑誌', '新書', 'その他'];
   const statuses = ['読みたい', '積読', '読書中', '読了'];
 
-  // スクリプトの動的読み込み用ヘルパー
   const loadScript = (src) => {
     return new Promise((resolve, reject) => {
       if (document.querySelector(`script[src="${src}"]`)) {
@@ -51,30 +50,27 @@ const App = () => {
   useEffect(() => {
     const initApp = async () => {
       try {
-        // Supabaseのロード
         if (!window.supabase) {
           await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2");
         }
-
-        // Html5Qrcodeのロード
         if (!window.Html5Qrcode) {
           await loadScript("https://unpkg.com/html5-qrcode");
         }
 
-        // 環境変数の取得（存在しない場合は既存のURLをデフォルトにする）
-        // window.__SUPABASE_URL などが定義されていない場合を考慮
-        const supabaseUrl = (typeof window !== 'undefined' && window.__SUPABASE_URL) 
-          ? window.__SUPABASE_URL 
-          : "";
-          
-        const supabaseAnonKey = (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY) 
-          ? window.__SUPABASE_ANON_KEY 
-          : "";
+        // 環境変数の優先順位を整理
+        // 1. Vite環境変数 (import.meta.env)
+        // 2. グローバル変数 (window.__SUPABASE_URL)
+        // 3. 直接指定のデフォルト値
+        const envUrl = (import.meta.env && import.meta.env.VITE_SUPABASE_URL);
+        const envKey = (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+        const supabaseUrl = envUrl || (window.__SUPABASE_URL && !window.__SUPABASE_URL.includes('undefined') ? window.__SUPABASE_URL : "");
+        const supabaseAnonKey = envKey || (window.__SUPABASE_ANON_KEY && !window.__SUPABASE_ANON_KEY.includes('undefined') ? window.__SUPABASE_ANON_KEY : "");
         
         if (window.supabase) {
-          // URLとKeyが空でないことを確認してから作成
-          if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('undefined')) {
-            throw new Error("Supabaseの接続情報が正しく設定されていません。URLまたはKeyが不足しています。");
+          // 最小限のバリデーション
+          if (!supabaseUrl || supabaseUrl.length < 10) {
+            throw new Error("Supabase URLが有効ではありません。");
           }
           
           supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
