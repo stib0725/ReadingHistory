@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // 本アプリ: Supabaseを使用した蔵書管理システム
-// 修正内容: Vercel/Vite環境変数の読み込み(import.meta.env)に対応し、接続エラーを解消
+// 修正内容: 削除ボタンの修正維持 ＋ 重複登録チェック機能の追加
 
 const App = () => {
   const [books, setBooks] = useState([]);
@@ -57,10 +57,6 @@ const App = () => {
           await loadScript("https://unpkg.com/html5-qrcode");
         }
 
-        // 環境変数の優先順位を整理
-        // 1. Vite環境変数 (import.meta.env)
-        // 2. グローバル変数 (window.__SUPABASE_URL)
-        // 3. 直接指定のデフォルト値
         const envUrl = (import.meta.env && import.meta.env.VITE_SUPABASE_URL);
         const envKey = (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY);
 
@@ -68,7 +64,6 @@ const App = () => {
         const supabaseAnonKey = envKey || (window.__SUPABASE_ANON_KEY && !window.__SUPABASE_ANON_KEY.includes('undefined') ? window.__SUPABASE_ANON_KEY : "");
         
         if (window.supabase) {
-          // 最小限のバリデーション
           if (!supabaseUrl || supabaseUrl.length < 10) {
             throw new Error("Supabase URLが有効ではありません。");
           }
@@ -111,6 +106,20 @@ const App = () => {
 
     try {
       const { id, ...submitData } = formData; 
+      
+      // 新規登録時の重複チェック
+      if (!id) {
+        const isDuplicate = books.some(b => 
+          b.title.trim().toLowerCase() === submitData.title.trim().toLowerCase() && 
+          b.author.trim().toLowerCase() === submitData.author.trim().toLowerCase()
+        );
+        
+        if (isDuplicate) {
+          setErrorMsg(`「${submitData.title}」は既に本棚に登録されています。`);
+          return;
+        }
+      }
+
       if (submitData.status !== '読了') submitData.finish_date = null;
 
       let error;
@@ -140,11 +149,31 @@ const App = () => {
     } catch (err) {}
   };
 
-  const deleteBook = async (id) => {
+  const deleteBook = async (e, id) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    
     if (!supabaseRef.current) return;
-    if (window.confirm('この本を削除しますか？')) {
-      await supabaseRef.current.from('books').delete().eq('id', id);
-      fetchBooks();
+    
+    const isConfirmed = window.confirm('この本を本棚から削除しますか？');
+    if (!isConfirmed) return;
+
+    try {
+      setDebugInfo('削除を実行中...');
+      const { error } = await supabaseRef.current.from('books').delete().eq('id', id);
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      setBooks(prev => prev.filter(b => b.id !== id));
+      setDebugInfo('削除が完了しました');
+      setErrorMsg(null);
+    } catch (err) {
+      console.error("Delete error:", err);
+      setErrorMsg("削除に失敗しました: " + err.message);
     }
   };
 
@@ -173,9 +202,8 @@ const App = () => {
             aspectRatio: 1.0
           },
           async (decodedText) => {
-            const code = decodedText.trim().replace(/-/g, '');
-            if (code.startsWith('978') || code.startsWith('979')) {
-              const isbn = code.substring(0, 13);
+            const isbn = decodedText.trim().replace(/[^0-9]/g, '');
+            if (isbn.length === 13 && (isbn.startsWith('978') || isbn.startsWith('979'))) {
               await html5QrCode.stop().catch(() => {});
               setIsScanning(false);
               fetchBookInfo(isbn);
@@ -184,7 +212,7 @@ const App = () => {
           () => {}
         ).catch(err => {
           setIsScanning(false);
-          setErrorMsg("カメラの起動に失敗しました。HTTPS環境であることと、カメラ権限を確認してください。");
+          setErrorMsg("カメラの起動に失敗しました。権限設定を確認してください。");
         });
       } catch (e) { 
         setIsScanning(false);
@@ -193,64 +221,41 @@ const App = () => {
     }, 500);
   };
 
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
   const fetchBookInfo = async (isbn) => {
     if (!isbn) return;
+    setDebugInfo(`ISBN: ${isbn} を検索中...`);
+    setErrorMsg(null);
     
-    const maxRetries = 3;
-    let attempts = 0;
-    let bookData = null;
-
     try {
-      while (attempts < maxRetries && !bookData) {
-        attempts++;
-        setDebugInfo(`ISBN: ${isbn} を取得中... (${attempts}/${maxRetries})`);
-        
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000); 
-
-          const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`, {
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-          
-          const data = await response.json();
-          
-          if (data.items && data.items.length > 0) {
-            const info = data.items[0].volumeInfo;
-            bookData = {
-              title: info.title || '',
-              author: info.authors?.join(', ') || '不明',
-              publisher: info.publisher || '不明',
-              published_date: info.publishedDate || '',
-              summary: info.description || '',
-              image_url: info.imageLinks?.thumbnail ? info.imageLinks.thumbnail.replace('http:', 'https:') : '',
-            };
-            break; 
-          }
-        } catch (err) {
-          console.warn(`Attempt ${attempts} failed:`, err);
-        }
-
-        if (!bookData && attempts < maxRetries) {
-          await sleep(1500);
-        }
+      const googleRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+      
+      if (googleRes.status === 429) {
+        setErrorMsg("Google APIの利用制限（429）がかかっています。しばらく時間を置いてから再度お試しください。");
+        setDebugInfo('利用制限中');
+        return;
       }
 
-      if (bookData) {
-        setFormData(prev => ({ 
-          ...prev, 
-          ...bookData,
-          id: null 
-        }));
-        setDebugInfo(`「${bookData.title}」を取得しました`);
+      if (googleRes.ok) {
+        const gData = await googleRes.json();
+        if (gData.items && gData.items.length > 0) {
+          const info = gData.items[0].volumeInfo;
+          const bookData = {
+            title: info.title || '',
+            author: info.authors?.join(', ') || '不明',
+            publisher: info.publisher || '不明',
+            published_date: info.publishedDate || '',
+            summary: info.description || '',
+            image_url: info.imageLinks?.thumbnail ? info.imageLinks.thumbnail.replace('http:', 'https:') : '',
+          };
+          
+          setFormData(prev => ({ ...prev, ...bookData, id: null }));
+          setDebugInfo(`Googleから「${bookData.title}」を取得`);
+        } else {
+          setErrorMsg(`該当する本が見つかりませんでした。手動入力をお願いします。`);
+          setDebugInfo('検索結果なし');
+        }
       } else {
-        setErrorMsg(`本が見つかりませんでした (ISBN: ${isbn})。手動入力してください。`);
-        setDebugInfo('取得失敗');
+        throw new Error(`APIエラー: ${googleRes.status}`);
       }
     } catch (error) {
       setErrorMsg("通信エラーが発生しました。");
@@ -305,7 +310,13 @@ const App = () => {
       padding: '6px 12px', borderRadius: '20px', border: 'none', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap',
       background: active ? color : '#f0f0f0', color: active ? 'white' : '#666', fontWeight: active ? 'bold' : 'normal'
     }),
-    card: { display: 'flex', gap: '15px', padding: '15px', borderBottom: '1px solid #f0f0f0', cursor: 'pointer', background: 'white', position: 'relative' },
+    card: { display: 'flex', gap: '15px', padding: '15px', borderBottom: '1px solid #f0f0f0', cursor: 'pointer', background: 'white', position: 'relative', transition: 'background 0.2s' },
+    deleteAction: {
+      position: 'absolute', bottom: '12px', right: '15px', padding: '4px 10px', borderRadius: '12px',
+      backgroundColor: '#fef2f2', color: '#ef4444', fontSize: '10px', fontWeight: 'bold', border: '1px solid #fee2e2',
+      cursor: 'pointer', zIndex: 100,
+      display: 'flex', alignItems: 'center', gap: '4px'
+    },
     modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px', backdropFilter: 'blur(3px)' },
     modalContent: { background: 'white', padding: '20px', borderRadius: '20px', maxWidth: '420px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }
   };
@@ -317,9 +328,9 @@ const App = () => {
       <div style={{fontSize: '10px', color: '#999', marginBottom: '10px', textAlign: 'center'}}>{debugInfo}</div>
 
       {errorMsg && (
-        <div style={{ background: '#fff0f0', color: '#d32f2f', padding: '10px', borderRadius: '10px', marginBottom: '15px', fontSize: '12px', border: '1px solid #ffcccc' }}>
+        <div style={{ background: '#fff0f0', color: '#d32f2f', padding: '12px', borderRadius: '12px', marginBottom: '15px', fontSize: '13px', border: '1px solid #ffcccc', lineHeight: '1.4' }}>
           {errorMsg}
-          <button onClick={() => setErrorMsg(null)} style={{float:'right', border:'none', background:'none', color:'#d32f2f', cursor:'pointer'}}>✕</button>
+          <button onClick={() => setErrorMsg(null)} style={{float:'right', border:'none', background:'none', color:'#d32f2f', cursor:'pointer', fontWeight:'bold'}}>✕</button>
         </div>
       )}
 
@@ -367,7 +378,6 @@ const App = () => {
         )}
       </form>
 
-      {/* 絞り込み/並び替え */}
       <div style={{ marginBottom: '20px', padding: '12px', background: '#fff', borderRadius: '16px', border: '1px solid #eee' }}>
         <input style={{ width: '100%', padding: '10px', borderRadius: '20px', border: '1px solid #f0f0f0', marginBottom: '10px', boxSizing: 'border-box', outline: 'none', fontSize: '13px' }} placeholder="本棚から検索..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         
@@ -396,7 +406,7 @@ const App = () => {
         </div>
       </div>
 
-      <div style={{borderRadius: '16px', overflow: 'hidden', background: '#fff', border: '1px solid #f0f0f0'}}>
+      <div style={{borderRadius: '16px', overflow: 'hidden', background: '#fff', border: '1px solid #f0f0f0', marginBottom: '40px'}}>
         {filteredBooks.map(book => (
           <div key={book.id} style={styles.card} onClick={() => { setFormData({...book, finish_date: book.finish_date || ''}); window.scrollTo({top:0, behavior:'smooth'}); }}>
             <img 
@@ -404,6 +414,7 @@ const App = () => {
               style={{ width: '60px', height: '85px', objectFit: 'cover', borderRadius: '6px' }} 
               alt={book.title} 
               onClick={(e) => { e.stopPropagation(); setSelectedBook(book); }}
+              onError={(e) => { e.target.src = 'https://via.placeholder.com/60x85?text=No+Image'; }}
             />
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
               <div style={{display: 'flex', alignItems: 'center', marginBottom: '4px'}}>
@@ -413,11 +424,21 @@ const App = () => {
                   {book.is_favorite ? '★' : '☆'}
                 </span>
               </div>
-              <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.title}</div>
-              <div style={{ fontSize: '11px', color: '#666', marginBottom: 'auto' }}>{book.author}</div>
+              <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '10px' }}>{book.title}</div>
+              <div style={{ fontSize: '11px', color: '#666', marginBottom: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px'}}>{book.author}</span>
+              </div>
               {book.status === '読了' && book.finish_date && (
                 <div style={{ fontSize: '10px', color: '#999', marginTop: '4px' }}>読了: {book.finish_date}</div>
               )}
+            </div>
+
+            <div 
+              style={styles.deleteAction}
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={(e) => deleteBook(e, book.id)}
+            >
+              <span>✕</span> 削除
             </div>
           </div>
         ))}
@@ -427,7 +448,7 @@ const App = () => {
         <div style={styles.modalOverlay} onClick={() => setSelectedBook(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div style={{display: 'flex', justifyContent: 'center', marginBottom: '15px'}}>
-              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170?text=No+Image'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} alt={selectedBook.title} />
+              <img src={selectedBook.image_url || 'https://via.placeholder.com/120x170?text=No+Image'} style={{ width: '120px', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} alt={selectedBook.title} onError={(e) => { e.target.src = 'https://via.placeholder.com/120x170?text=No+Image'; }} />
             </div>
             <h3 style={{margin: '0 0 10px 0', fontSize: '16px', lineHeight: '1.4'}}>{selectedBook.title}</h3>
             <div style={{fontSize: '13px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
