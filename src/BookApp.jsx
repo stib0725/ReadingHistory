@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // 本アプリ: Supabaseを使用した蔵書管理システム
-// 修正内容: 削除ボタンの修正維持 ＋ 重複登録チェック機能の追加
+// 修正内容: ビルド環境（Vite / Create React App）に依存しないよう環境変数の読み込み処理を強化
 
 const App = () => {
   const [books, setBooks] = useState([]);
@@ -17,6 +17,7 @@ const App = () => {
   const [isReady, setIsReady] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [debugInfo, setDebugInfo] = useState('');
+  const [googleApiKey, setGoogleApiKey] = useState('');
   
   const supabaseRef = useRef(null);
 
@@ -57,19 +58,36 @@ const App = () => {
           await loadScript("https://unpkg.com/html5-qrcode");
         }
 
-        const envUrl = (import.meta.env && import.meta.env.VITE_SUPABASE_URL);
-        const envKey = (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY);
+        // --- 環境変数のマルチ読み込み対応 ---
+        // 1. Vite用 (VITE_)
+        const viteUrl = import.meta.env?.VITE_SUPABASE_URL;
+        const viteKey = import.meta.env?.VITE_SUPABASE_ANON_KEY;
+        const viteGoogleKey = import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY;
+
+        // 2. Create React App用 (REACT_APP_)
+        const craUrl = typeof process !== 'undefined' && process.env?.REACT_APP_SUPABASE_URL;
+        const craKey = typeof process !== 'undefined' && process.env?.REACT_APP_SUPABASE_ANON_KEY;
+        const craGoogleKey = typeof process !== 'undefined' && process.env?.REACT_APP_GOOGLE_BOOKS_API_KEY;
+
+        // 値が設定されている方を採用
+        const envUrl = viteUrl || craUrl;
+        const envKey = viteKey || craKey;
+        const envGoogleKey = viteGoogleKey || craGoogleKey;
 
         const supabaseUrl = envUrl || (window.__SUPABASE_URL && !window.__SUPABASE_URL.includes('undefined') ? window.__SUPABASE_URL : "");
         const supabaseAnonKey = envKey || (window.__SUPABASE_ANON_KEY && !window.__SUPABASE_ANON_KEY.includes('undefined') ? window.__SUPABASE_ANON_KEY : "");
         
+        // APIキーをステートにセット
+        const actualGoogleKey = envGoogleKey || window.__GOOGLE_BOOKS_API_KEY || '';
+        setGoogleApiKey(actualGoogleKey);
+
         if (window.supabase) {
           if (!supabaseUrl || supabaseUrl.length < 10) {
             throw new Error("Supabase URLが有効ではありません。");
           }
           
           supabaseRef.current = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
-          setDebugInfo('データベース接続完了');
+          setDebugInfo('データベース接続完了' + (actualGoogleKey ? '（APIキー有効）' : '（APIキー未検出）'));
         }
         setIsReady(true);
       } catch (err) {
@@ -227,10 +245,12 @@ const App = () => {
     setErrorMsg(null);
     
     try {
-      const googleRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+      // APIキーが設定されている場合は、URLパラメータに &key= を付与してリクエストを送信
+      const apiKeyParam = googleApiKey ? `&key=${googleApiKey}` : '';
+      const googleRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}${apiKeyParam}`);
       
       if (googleRes.status === 429) {
-        setErrorMsg("Google APIの利用制限（429）がかかっています。しばらく時間を置いてから再度お試しください。");
+        setErrorMsg("Google APIの利用制限（429）がかかっています。登録済みのAPIキーが正しいか、またはしばらく時間を置いてから再度お試しください。");
         setDebugInfo('利用制限中');
         return;
       }
@@ -249,7 +269,7 @@ const App = () => {
           };
           
           setFormData(prev => ({ ...prev, ...bookData, id: null }));
-          setDebugInfo(`Googleから「${bookData.title}」を取得`);
+          setDebugInfo(`Googleから「${bookData.title}」を取得しました`);
         } else {
           setErrorMsg(`該当する本が見つかりませんでした。手動入力をお願いします。`);
           setDebugInfo('検索結果なし');
@@ -435,7 +455,7 @@ const App = () => {
 
             <div 
               style={styles.deleteAction}
-              onMouseDown={(e) => { e.stopPropagation(); }}
+              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
               onClick={(e) => deleteBook(e, book.id)}
             >
               <span>✕</span> 削除
